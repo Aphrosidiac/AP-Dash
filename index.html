@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WhatsApp Warmer - AI Powered</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="header-content">
+                <h1>🤖 WhatsApp Warmer AI</h1>
+                <div class="header-stats">
+                    <div class="stat-item">
+                        <span class="stat-label">Account:</span>
+                        <span class="stat-value" id="header-account">Not Connected</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Phone Numbers:</span>
+                        <span class="stat-value" id="header-phone-numbers">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Messages Today:</span>
+                        <span class="stat-value" id="header-messages">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Status:</span>
+                        <span class="stat-value" id="header-status">
+                            <span class="status-badge status-inactive">Inactive</span>
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Navigation Tabs -->
+        <nav class="nav-tabs">
+            <button class="tab-button active" data-tab="dashboard">Dashboard</button>
+            <button class="tab-button" data-tab="settings">Settings</button>
+            <button class="tab-button" data-tab="account">Account</button>
+            <button class="tab-button" data-tab="phone-numbers">Phone Numbers</button>
+            <button class="tab-button" data-tab="chat">Live Chat</button>
+            <button class="tab-button" data-tab="warmer">AI Warmer</button>
+        </nav>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Dashboard Tab -->
+            <div class="tab-content active" id="dashboard-tab">
+                <div class="dashboard-grid">
+                    <div class="dashboard-card">
+                        <div class="card-icon">📱</div>
+                        <div class="card-content">
+                            <h3>Warming Account</h3>
+                            <div class="card-value" id="dash-account-status">Not Connected</div>
+                            <div class="card-label">WhatsApp account status</div>
+                        </div>
+                    </div>
+
+                    <div class="dashboard-card">
+                        <div class="card-icon">👥</div>
+                        <div class="card-content">
+                            <h3>Target Numbers</h3>
+                            <div class="card-value" id="dash-phone-numbers">0</div>
+                            <div class="card-label">phone numbers added</div>
+                        </div>
+                    </div>
+
+                    <div class="dashboard-card">
+                        <div class="card-icon">💬</div>
+                        <div class="card-content">
+                            <h3>Messages Today</h3>
+                            <div class="card-value" id="dash-messages-today">0</div>
+                            <div class="card-label">AI-generated messages</div>
+                        </div>
+                    </div>
+
+                    <div class="dashboard-card">
+                        <div class="card-icon">🤖</div>
+                        <div class="card-content">
+                            <h3>AI Status</h3>
+                            <div class="card-value" id="dash-ai-status">
+                                <span class="status-badge status-inactive" id="dash-ai-badge">Not Configured</span>
+                            </div>
+                            <div class="card-label" id="dash-ai-detail">Configure API key</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="recent-activity">
+                    <h2>Recent Activity</h2>
+                    <div class="activity-log" id="activity-log">
+                        <div class="activity-item">
+                            <span class="activity-time">System Ready</span>
+                            <span class="activity-message">WhatsApp Warmer AI initialized</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Settings Tab -->
+            <div class="tab-content" id="settings-tab">
+                <div class="settings-container">
+                    <h2>Configuration</h2>
+
+                    <div class="settings-section">
+                        <h3>🔑 Gemini AI API Key</h3>
+                        <p class="settings-description">
+                            Enter your Google Gemini AI API key to enable AI-powered conversations.
+                            Get your API key from <a href="https://makersuite.google.com/app/apikey" target="_blank">Google AI Studio</a>.
+                        </p>
+
+                        <div class="form-group">
+                            <label for="api-key-input">API Key:</label>
+                            <div class="api-key-input-group">
+                                <input type="password" id="api-key-input" placeholder="Enter your Gemini API key" class="form-input">
+                                <button class="btn btn-small" id="toggle-api-key">Show</button>
+                            </div>
+                        </div>
+
+                        <div class="form-actions">
+                            <button class="btn btn-primary" id="save-api-key-btn">Save API Key</button>
+                            <button class="btn btn-secondary" id="test-api-key-btn">Test Connection</button>
+                        </div>
+
+                        <div class="api-status" id="api-status"></div>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3>🤖 AI Personality</h3>
+                        <p class="settings-description">
+                            Customize how the AI responds in conversations. This acts as the AI's personality and context.
+                        </p>
+
+                        <div class="form-group">
+                            <label for="ai-personality-input">AI Personality & Instructions:</label>
+                            <textarea
+                                id="ai-personality-input"
+                                class="form-textarea"
+                                rows="6"
+                                placeholder="Describe how the AI should behave, what personality it should have, and any context it should know..."
+                            ></textarea>
+                            <small>This is used as the system prompt for the AI. The default personality is casual and friendly.</small>
+                        </div>
+
+                        <div class="form-actions">
+                            <button class="btn btn-primary" id="save-ai-personality-btn">Save AI Personality</button>
+                            <button class="btn btn-secondary" id="reset-ai-personality-btn">Reset to Default</button>
+                        </div>
+
+                        <div class="api-status" id="ai-personality-status"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Account Tab -->
+            <div class="tab-content" id="account-tab">
+                <div class="tab-header">
+                    <h2>WhatsApp Warming Account</h2>
+                    <button class="btn btn-primary" id="add-account-btn">+ Add Account</button>
+                </div>
+
+                <div class="info-banner">
+                    <span class="info-icon">ℹ️</span>
+                    <span>Only one warming account is allowed. This account will send AI-generated messages to your target phone numbers.</span>
+                </div>
+
+                <div class="accounts-list" id="accounts-list">
+                    <div class="empty-state">
+                        <div class="empty-icon">📱</div>
+                        <h3>No account added yet</h3>
+                        <p>Click "Add Account" to connect your WhatsApp account</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Phone Numbers Tab -->
+            <div class="tab-content" id="phone-numbers-tab">
+                <div class="tab-header">
+                    <h2>Target Phone Numbers</h2>
+                    <button class="btn btn-primary" id="add-phone-number-btn">+ Add Phone Number</button>
+                </div>
+
+                <div class="info-banner">
+                    <span class="info-icon">ℹ️</span>
+                    <span>Add WhatsApp phone numbers that your warming account will chat with using AI.</span>
+                </div>
+
+                <div class="phone-numbers-list" id="phone-numbers-list">
+                    <div class="empty-state">
+                        <div class="empty-icon">👥</div>
+                        <h3>No phone numbers added yet</h3>
+                        <p>Click "Add Phone Number" to add target numbers</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Chat Tab -->
+            <div class="tab-content" id="chat-tab">
+                <div class="tab-header">
+                    <h2>Live Chat View (Segmented by Number)</h2>
+                    <div style="display: flex; gap: 10px;">
+                        <button class="btn btn-secondary btn-small" id="load-demo-messages-btn">Load Demo Messages</button>
+                        <button class="btn btn-secondary btn-small" id="clear-demo-messages-btn" style="display: none;">Clear Demo</button>
+                    </div>
+                </div>
+
+                <div class="info-banner">
+                    <span class="info-icon">ℹ️</span>
+                    <span>Chats are automatically organized by phone number. Each conversation appears in its own segment.</span>
+                </div>
+
+                <div class="chat-segments-container" id="chat-segments-container">
+                    <div class="empty-state">
+                        <div class="empty-icon">💬</div>
+                        <h3>No conversations yet</h3>
+                        <p>Conversations will appear here when you start warming</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Warmer Tab -->
+            <div class="tab-content" id="warmer-tab">
+                <div class="tab-header">
+                    <h2>AI-Powered Warmer</h2>
+                    <div class="warmer-status" id="warmer-status-indicator">
+                        <span class="status-badge status-inactive">Inactive</span>
+                    </div>
+                </div>
+
+                <div class="warmer-controls">
+                    <div class="control-section">
+                        <h3>How It Works</h3>
+                        <div class="how-it-works">
+                            <div class="step">
+                                <div class="step-number">1</div>
+                                <div class="step-content">
+                                    <h4>AI Generates Greeting</h4>
+                                    <p>Gemini AI creates a natural, friendly greeting message</p>
+                                </div>
+                            </div>
+                            <div class="step">
+                                <div class="step-number">2</div>
+                                <div class="step-content">
+                                    <h4>Send to Numbers</h4>
+                                    <p>Message is sent to all your target phone numbers</p>
+                                </div>
+                            </div>
+                            <div class="step">
+                                <div class="step-number">3</div>
+                                <div class="step-content">
+                                    <h4>Detect Replies</h4>
+                                    <p>App listens for responses from the recipients</p>
+                                </div>
+                            </div>
+                            <div class="step">
+                                <div class="step-number">4</div>
+                                <div class="step-content">
+                                    <h4>AI Responds</h4>
+                                    <p>AI generates contextual replies to keep conversation going</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="requirements-check" id="requirements-check">
+                            <h4>Requirements:</h4>
+                            <div class="requirement-item">
+                                <span class="req-icon" id="req-account">❌</span>
+                                <span>WhatsApp account connected</span>
+                            </div>
+                            <div class="requirement-item">
+                                <span class="req-icon" id="req-api">❌</span>
+                                <span>Gemini API key configured</span>
+                            </div>
+                            <div class="requirement-item">
+                                <span class="req-icon" id="req-numbers">❌</span>
+                                <span>At least one phone number added</span>
+                            </div>
+                        </div>
+
+                        <div class="control-buttons">
+                            <button class="btn btn-large btn-success" id="start-warming-btn">
+                                ▶ Start AI Warming
+                            </button>
+                            <button class="btn btn-large btn-danger" id="stop-warming-btn" style="display: none;">
+                                ■ Stop Warming
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="control-section">
+                        <h3>Warming Activity</h3>
+
+                        <div class="warming-stats">
+                            <div class="stat-box">
+                                <div class="stat-number" id="warming-messages-sent">0</div>
+                                <div class="stat-description">Messages sent this session</div>
+                            </div>
+                            <div class="stat-box">
+                                <div class="stat-number" id="warming-active-chats">0</div>
+                                <div class="stat-description">Active conversations</div>
+                            </div>
+                        </div>
+
+                        <div class="warming-log-container">
+                            <h4>Activity Log</h4>
+                            <div class="warming-log" id="warming-log">
+                                <div class="log-item">Warming not started</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Add Account Modal -->
+    <div class="modal" id="add-account-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Add WhatsApp Account</h2>
+                <button class="modal-close" id="close-account-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="account-form">
+                    <div class="form-group">
+                        <label for="account-name">Account Name:</label>
+                        <input type="text" id="account-name" placeholder="e.g., My Warming Account" class="form-input" autofocus>
+                    </div>
+                    <button class="btn btn-primary btn-block" id="generate-qr-btn">Generate QR Code</button>
+                </div>
+
+                <div id="qr-code-section" style="display: none;">
+                    <div class="qr-instructions">
+                        <h3>Scan QR Code with WhatsApp</h3>
+                        <ol>
+                            <li>Open WhatsApp on your phone</li>
+                            <li>Tap Menu or Settings and select "Linked Devices"</li>
+                            <li>Tap "Link a Device"</li>
+                            <li>Point your phone at this screen to scan the code</li>
+                        </ol>
+                    </div>
+                    <div class="qr-code-container">
+                        <img id="qr-code-image" src="" alt="QR Code">
+                        <div class="qr-loading">
+                            <div class="spinner"></div>
+                            <p>Waiting for QR code...</p>
+                        </div>
+                    </div>
+                    <div class="qr-status" id="qr-status"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Phone Number Modal -->
+    <div class="modal" id="add-phone-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Add Phone Number</h2>
+                <button class="modal-close" id="close-phone-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="phone-number-input">Phone Number (with country code):</label>
+                    <input type="text" id="phone-number-input" placeholder="e.g., 60123456789" class="form-input" autofocus>
+                    <small>Enter number without '+' or spaces (e.g., 60123456789 for Malaysia)</small>
+                </div>
+                <div class="form-group">
+                    <label for="phone-name-input">Name (optional):</label>
+                    <input type="text" id="phone-name-input" placeholder="e.g., Client A" class="form-input">
+                </div>
+                <button class="btn btn-primary btn-block" id="save-phone-number-btn">Add Phone Number</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="renderer.js"></script>
+</body>
+</html>

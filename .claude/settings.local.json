@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(npm start)",
+      "Bash(git init:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nInitial commit: WhatsApp Warmer AI - Automated conversation tool\n\nFeatures:\n- AI-powered WhatsApp conversation automation using Gemini AI\n- Single warming account with multi-number targeting\n- WhatsApp Web integration via whatsapp-web.js\n- Real-time chat view with iPhone-style phone displays\n- Customizable AI personality and conversation context\n- Live chat monitoring segmented by phone number\n- Demo mode for testing UI without WhatsApp login\n- Responsive design with horizontal phone layout\n\nTech stack:\n- Electron.js desktop application\n- Google Gemini AI (gemini-2.0-flash-exp)\n- whatsapp-web.js for WhatsApp Web API\n- LocalAuth for session persistence\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n)\")"
+    ]
+  }
+}
