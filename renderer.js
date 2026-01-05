@@ -351,24 +351,68 @@ async function loadAccounts() {
         return;
     }
 
-    accountsList.innerHTML = accounts.map(account => `
-        <div class="account-card ${account.status === 'ready' ? 'account-ready' : ''}">
-            <div class="account-header">
-                <div class="account-info">
-                    <h3>${account.name}</h3>
-                    <p class="account-phone">${account.phoneNumber || 'Connecting...'}</p>
+    // Single account - centered profile design
+    const account = accounts[0];
+    const statusColor = account.status === 'ready' ? '#10b981' : '#6b7280';
+    const statusIcon = account.status === 'ready' ? '✓' : '○';
+
+    accountsList.innerHTML = `
+        <div class="account-profile-container">
+            <div class="account-profile-card ${account.status === 'ready' ? 'account-connected' : 'account-connecting'}">
+                <div class="account-profile-header">
+                    <div class="account-avatar">
+                        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                            <circle cx="12" cy="7" r="4"></circle>
+                        </svg>
+                    </div>
+                    <div class="account-profile-info">
+                        <h2>${account.name}</h2>
+                        <p class="account-phone-number">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+                            </svg>
+                            +${account.phoneNumber || 'Connecting...'}
+                        </p>
+                    </div>
+                    <div class="account-profile-status">
+                        <span class="status-badge status-${account.status === 'ready' ? 'active' : 'inactive'}">
+                            ${statusIcon} ${getStatusText(account.status)}
+                        </span>
+                    </div>
                 </div>
-                <div class="account-status">
-                    <span class="status-badge status-${account.status === 'ready' ? 'active' : 'inactive'}">
-                        ${getStatusText(account.status)}
-                    </span>
+
+                <div class="account-profile-divider"></div>
+
+                <div class="account-profile-details">
+                    <div class="account-detail-item">
+                        <span class="detail-label">Account Type</span>
+                        <span class="detail-value">Warming Account</span>
+                    </div>
+                    <div class="account-detail-item">
+                        <span class="detail-label">Connection Status</span>
+                        <span class="detail-value" style="color: ${statusColor}; font-weight: 600;">
+                            ${account.status === 'ready' ? 'Active & Ready' : 'Connecting...'}
+                        </span>
+                    </div>
+                    <div class="account-detail-item">
+                        <span class="detail-label">Added On</span>
+                        <span class="detail-value">${new Date(account.addedAt).toLocaleDateString()}</span>
+                    </div>
                 </div>
-            </div>
-            <div class="account-actions">
-                <button class="btn btn-small btn-danger" onclick="removeAccount('${account.id}')">Remove</button>
+
+                <div class="account-profile-actions">
+                    <button class="btn btn-danger btn-remove-account" onclick="removeAccount('${account.id}')">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="3 6 5 6 21 6"></polyline>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                        </svg>
+                        Remove Account
+                    </button>
+                </div>
             </div>
         </div>
-    `).join('');
+    `;
 }
 
 function getStatusText(status) {
@@ -516,8 +560,10 @@ async function loadPhoneNumbers() {
             <div class="phone-number-card ${isEnabled ? '' : 'phone-disabled'}">
                 <div class="phone-info">
                     <h3>${phone.name}</h3>
-                    <p class="phone-number">+${phone.number}</p>
-                    ${!isEnabled ? '<span class="phone-status-badge">Paused</span>' : ''}
+                    <div class="phone-number-row">
+                        <p class="phone-number">+${phone.number}</p>
+                        ${!isEnabled ? '<span class="phone-status-badge">Paused</span>' : ''}
+                    </div>
                 </div>
                 <div class="phone-actions">
                     <label class="toggle-switch" title="${isEnabled ? 'Disable AI responses' : 'Enable AI responses'}">
@@ -731,9 +777,30 @@ function displaySegmentedMessages(messagesByPhone) {
 
         chatContainer.innerHTML = messages.map(msg => {
             const time = new Date(msg.timestamp * 1000).toLocaleTimeString();
+
+            let displayBody = escapeHtml(msg.body || '');
+            let mediaIndicator = '';
+
+            // Add media indicators
+            if (msg.hasMedia && msg.mediaContext) {
+                if (msg.mediaContext.type === 'image') {
+                    const desc = msg.mediaContext.description || 'an image';
+                    mediaIndicator = `<div class="media-indicator image-indicator">
+                        📷 Image: ${escapeHtml(desc)}
+                    </div>`;
+                } else if (msg.mediaContext.type === 'voice') {
+                    const trans = msg.mediaContext.transcription || '[voice message]';
+                    mediaIndicator = `<div class="media-indicator voice-indicator">
+                        🎤 Voice: "${escapeHtml(trans)}"
+                    </div>`;
+                    displayBody = ''; // Voice messages don't have separate body
+                }
+            }
+
             return `
                 <div class="chat-message ${msg.isOwn ? 'message-own' : 'message-received'}">
-                    <div class="message-body">${escapeHtml(msg.body)}</div>
+                    ${mediaIndicator}
+                    ${displayBody ? `<div class="message-body">${displayBody}</div>` : ''}
                     <div class="message-time">${time}</div>
                 </div>
             `;

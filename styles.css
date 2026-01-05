@@ -1454,6 +1454,16 @@ textarea:focus {
     color: var(--text-muted);
 }
 
+.phone-number-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.phone-number-row .phone-number {
+    margin: 0;
+}
+
 .phone-status-badge {
     display: inline-block;
     padding: 2px 8px;
@@ -1462,5 +1472,209 @@ textarea:focus {
     font-size: 11px;
     font-weight: 500;
     border-radius: 4px;
-    margin-top: 6px;
+    flex-shrink: 0;
+}
+
+/* Media Indicators */
+.media-indicator {
+    padding: 8px 12px;
+    margin-bottom: 6px;
+    border-radius: 8px;
+    font-size: 0.9em;
+    background: #f0f0f0;
+    color: #333;
+    line-height: 1.4;
+}
+
+.message-own .media-indicator {
+    background: #d1f4d1;
+}
+
+.image-indicator {
+    border-left: 3px solid #4CAF50;
+}
+
+.voice-indicator {
+    border-left: 3px solid #2196F3;
+}
+
+/* Account Profile Card - Single Account Design */
+.account-profile-container {
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 40px 20px;
+    min-height: 400px;
+}
+
+.account-profile-card {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    width: 100%;
+    max-width: 600px;
+    overflow: hidden;
+}
+
+.account-profile-header {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 28px 32px;
+    background: #1f2937;
+}
+
+.account-avatar {
+    flex-shrink: 0;
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    background: #374151;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #9ca3af;
+}
+
+.account-avatar svg {
+    width: 40px;
+    height: 40px;
+}
+
+.account-profile-info {
+    flex: 1;
+}
+
+.account-profile-info h2 {
+    margin: 0 0 8px 0;
+    font-size: 20px;
+    font-weight: 600;
+    color: #ffffff;
+    letter-spacing: -0.01em;
+}
+
+.account-phone-number {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+    font-size: 14px;
+    color: #d1d5db;
+    font-weight: 400;
+}
+
+.account-phone-number svg {
+    opacity: 0.7;
+}
+
+.account-profile-status {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+}
+
+.account-profile-status .status-badge {
+    font-size: 12px;
+    padding: 6px 12px;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+}
+
+.account-profile-divider {
+    height: 1px;
+    background: var(--border-color);
+    margin: 0 32px;
+}
+
+.account-profile-details {
+    padding: 28px 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+.account-detail-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 0;
+}
+
+.detail-label {
+    font-size: 14px;
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+.detail-value {
+    font-size: 14px;
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.account-profile-actions {
+    padding: 0 32px 28px 32px;
+    display: flex;
+    justify-content: flex-end;
+}
+
+.btn-remove-account {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    padding: 8px 16px;
+    border-radius: 6px;
+}
+
+.btn-remove-account svg {
+    width: 16px;
+    height: 16px;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .account-profile-container {
+        padding: 20px 10px;
+    }
+
+    .account-profile-header {
+        flex-wrap: wrap;
+        padding: 24px 20px;
+        gap: 16px;
+    }
+
+    .account-profile-info {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .account-profile-info h2 {
+        font-size: 18px;
+    }
+
+    .account-phone-number {
+        font-size: 14px;
+    }
+
+    .account-profile-status {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .account-profile-details,
+    .account-profile-actions {
+        padding-left: 20px;
+        padding-right: 20px;
+    }
+
+    .account-detail-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+    }
 }

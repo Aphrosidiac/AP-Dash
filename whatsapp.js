@@ -200,6 +200,16 @@ Generate a natural response to their last message. Keep it short (1-2 sentences)
                     ? message.to.replace('@c.us', '')
                     : message.from.replace('@c.us', '');
 
+                // Handle media if present
+                const hasMedia = message.hasMedia;
+                const messageType = message.type;
+                let mediaContext = null;
+
+                if (hasMedia && !message.fromMe) {
+                    console.log(`Message has media: ${messageType}`);
+                    mediaContext = await this.handleMediaMessage(message);
+                }
+
                 // Add message to phone-specific storage
                 this.addMessageToPhone(phoneNumber, {
                     id: messageId,
@@ -210,7 +220,10 @@ Generate a natural response to their last message. Keep it short (1-2 sentences)
                     to: message.to,
                     body: message.body,
                     timestamp: message.timestamp,
-                    isOwn: message.fromMe
+                    isOwn: message.fromMe,
+                    hasMedia: hasMedia,
+                    mediaType: messageType,
+                    mediaContext: mediaContext
                 });
 
                 // Handle warming logic if active
@@ -219,7 +232,19 @@ Generate a natural response to their last message. Keep it short (1-2 sentences)
 
                     // Check if this is from one of our target phone numbers
                     if (this.warmingConfig && this.warmingConfig.phoneNumbers.includes(fromNumber)) {
-                        console.log(`Received reply from ${fromNumber}: ${message.body}`);
+                        // Format message text with media context
+                        let messageText = message.body || '';
+
+                        if (mediaContext) {
+                            if (mediaContext.type === 'voice') {
+                                messageText = `[Voice message: "${mediaContext.transcription}"]`;
+                            } else if (mediaContext.type === 'image') {
+                                const caption = message.body ? ` Caption: "${message.body}"` : '';
+                                messageText = `[Sent an image: ${mediaContext.description}${caption}]`;
+                            }
+                        }
+
+                        console.log(`Received reply from ${fromNumber}: ${messageText}`);
 
                         // Add to conversation history
                         if (!this.activeConversations.has(fromNumber)) {
@@ -229,8 +254,11 @@ Generate a natural response to their last message. Keep it short (1-2 sentences)
                         const conversation = this.activeConversations.get(fromNumber);
                         conversation.history.push({
                             role: 'user',
-                            text: message.body,
-                            timestamp: Date.now()
+                            text: messageText,
+                            timestamp: Date.now(),
+                            hasMedia: hasMedia,
+                            mediaType: messageType,
+                            mediaContext: mediaContext
                         });
                         conversation.lastMessageTime = Date.now();
 
@@ -255,7 +283,16 @@ Generate a natural response to their last message. Keep it short (1-2 sentences)
                                 message: `Message from ${fromNumber} queued (number disabled)`
                             });
                         } else {
-                            // Generate AI response after a configurable delay to seem natural
+                            // 15% chance to react with emoji in addition to text
+                            const shouldReact = Math.random() < 0.15;
+
+                            if (shouldReact) {
+                                // React immediately
+                                console.log(`Reacting to message from ${fromNumber} (15% chance)`);
+                                await this.sendEmojiReaction(message, fromNumber);
+                            }
+
+                            // Always send text reply after delay
                             const delayMin = (this.warmingConfig?.delayMin || 3) * 1000;
                             const delayMax = (this.warmingConfig?.delayMax || 8) * 1000;
                             const delay = delayMin + Math.random() * (delayMax - delayMin);
@@ -277,7 +314,10 @@ Generate a natural response to their last message. Keep it short (1-2 sentences)
                         to: message.to,
                         body: message.body,
                         timestamp: message.timestamp,
-                        fromMe: message.fromMe
+                        fromMe: message.fromMe,
+                        hasMedia: hasMedia,
+                        mediaType: messageType,
+                        mediaContext: mediaContext
                     }
                 });
             });
@@ -309,6 +349,136 @@ Generate a natural response to their last message. Keep it short (1-2 sentences)
         }
     }
 
+    async handleMediaMessage(message) {
+        try {
+            const media = await message.downloadMedia();
+
+            if (!media) {
+                console.error('Failed to download media');
+                return this.getMediaFallback(message.type, 'Download failed');
+            }
+
+            // Check size limit (10MB)
+            const sizeInMB = (media.data.length * 0.75) / (1024 * 1024);
+            if (sizeInMB > 10) {
+                console.warn(`Media too large: ${sizeInMB.toFixed(2)}MB`);
+                return this.getMediaFallback(message.type, `File too large`);
+            }
+
+            // Route to appropriate handler
+            if (message.type === 'image') {
+                return await this.analyzeImage(media);
+            } else if (message.type === 'ptt' || message.type === 'audio') {
+                return await this.transcribeAudio(media);
+            }
+
+            return null;
+        } catch (error) {
+            console.error('Error handling media:', error);
+            return this.getMediaFallback(message.type, error.message);
+        }
+    }
+
+    getMediaFallback(type, reason) {
+        return {
+            type: type,
+            description: type === 'image' ? 'an image' : 'a voice message',
+            transcription: type === 'voice' || type === 'ptt' || type === 'audio' ? '[unable to transcribe]' : undefined,
+            error: reason,
+            fallback: true
+        };
+    }
+
+    async analyzeImage(media) {
+        if (!this.genAI) {
+            return { type: 'image', description: 'an image' };
+        }
+
+        try {
+            const model = this.genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+
+            const imagePart = {
+                inlineData: {
+                    data: media.data,
+                    mimeType: media.mimetype
+                }
+            };
+
+            const prompt = `Analyze this image in detail. Describe what you see in a natural, conversational way as if you're telling a friend what's in the picture. Keep it to 1-2 sentences. Focus on the main subject and any interesting details.`;
+
+            const result = await model.generateContent([prompt, imagePart]);
+            const response = await result.response;
+            const description = response.text().trim();
+
+            console.log(`Image analyzed: ${description}`);
+
+            // Send to warming log
+            if (this.mainWindow && this.mainWindow.webContents) {
+                this.mainWindow.webContents.send('warming-log', {
+                    message: `📷 Analyzed image: "${description.substring(0, 50)}${description.length > 50 ? '...' : ''}"`
+                });
+            }
+
+            return {
+                type: 'image',
+                description: description,
+                mimeType: media.mimetype
+            };
+        } catch (error) {
+            console.error('Error analyzing image:', error);
+            return {
+                type: 'image',
+                description: 'an image',
+                error: error.message
+            };
+        }
+    }
+
+    async transcribeAudio(media) {
+        if (!this.genAI) {
+            return { type: 'voice', transcription: '[voice message]' };
+        }
+
+        try {
+            const model = this.genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+
+            const audioPart = {
+                inlineData: {
+                    data: media.data,
+                    mimeType: media.mimetype
+                }
+            };
+
+            const prompt = `Transcribe this audio message exactly. Provide only the transcription without any additional commentary.`;
+
+            const result = await model.generateContent([prompt, audioPart]);
+            const response = await result.response;
+            const transcription = response.text().trim();
+
+            console.log(`Audio transcribed: ${transcription}`);
+
+            // Send to warming log
+            if (this.mainWindow && this.mainWindow.webContents) {
+                this.mainWindow.webContents.send('warming-log', {
+                    message: `🎤 Transcribed voice: "${transcription.substring(0, 50)}${transcription.length > 50 ? '...' : ''}"`
+                });
+            }
+
+            return {
+                type: 'voice',
+                transcription: transcription,
+                mimeType: media.mimetype
+            };
+        } catch (error) {
+            console.error('Error transcribing audio:', error);
+            return {
+                type: 'voice',
+                transcription: '[voice message - transcription failed]',
+                error: error.message
+            };
+        }
+    }
+
     async disconnectAll() {
         if (this.client) {
             await this.client.destroy().catch(err => console.error(err));
@@ -329,6 +499,52 @@ Generate a natural response to their last message. Keep it short (1-2 sentences)
         };
     }
 
+    async sendEmojiReaction(message, phoneNumber) {
+        if (!this.client || !this.client.info) {
+            console.error('Client not ready');
+            return;
+        }
+
+        try {
+            // Curated list of positive emojis
+            const emojis = ['👍', '❤️', '😂', '😊', '🔥', '✨', '👏', '💯'];
+
+            // Pick random emoji
+            const emoji = emojis[Math.floor(Math.random() * emojis.length)];
+
+            // Send reaction to the message
+            await message.react(emoji);
+
+            console.log(`Reacted to ${phoneNumber} with ${emoji}`);
+
+            // Add reaction to conversation history
+            const conversation = this.activeConversations.get(phoneNumber);
+            if (conversation) {
+                conversation.history.push({
+                    role: 'assistant',
+                    text: `[Reacted with ${emoji}]`,
+                    timestamp: Date.now(),
+                    isReaction: true
+                });
+            }
+
+            // Log to warming activity
+            this.mainWindow.webContents.send('warming-log', {
+                message: `Reacted to ${phoneNumber} with ${emoji}`
+            });
+
+            // Update stats (count as engagement)
+            this.mainWindow.webContents.send('increment-stats');
+
+        } catch (error) {
+            console.error('Error sending emoji reaction:', error);
+
+            // Fallback: send text reply instead
+            console.log('Reaction failed, falling back to text reply');
+            await this.sendAIReply(phoneNumber);
+        }
+    }
+
     async sendAIReply(phoneNumber) {
         if (!this.client || !this.client.info) {
             console.error('Client not ready');
@@ -339,11 +555,19 @@ Generate a natural response to their last message. Keep it short (1-2 sentences)
             const conversation = this.activeConversations.get(phoneNumber);
             if (!conversation) return;
 
+            const chatId = `${phoneNumber}@c.us`;
+
+            // Get chat object for typing indicator
+            const chat = await this.client.getChatById(chatId);
+
+            // Show typing indicator
+            await chat.sendStateTyping();
+            console.log(`Showing typing indicator to ${phoneNumber}`);
+
             // Generate AI response based on conversation history
             const aiResponse = await this.generateAIResponse(conversation.history, false);
 
-            // Send the message
-            const chatId = `${phoneNumber}@c.us`;
+            // Send the message (this automatically clears typing state)
             await this.client.sendMessage(chatId, aiResponse);
 
             // Add to conversation history
