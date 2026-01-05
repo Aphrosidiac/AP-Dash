@@ -19,6 +19,8 @@ class WhatsAppManager {
         this.conversationCheckIntervals = new Map(); // phoneNumber -> intervalId
         this.processedMessageIds = new Set(); // Track processed messages to prevent duplicates
         this.messagesByPhone = new Map(); // phoneNumber -> [messages]
+        this.queuedMessages = new Map(); // phoneNumber -> { message: string, timestamp: number } - stores last message when disabled
+        this.disabledNumbers = new Set(); // Track disabled numbers
     }
 
     initializeAI(apiKey) {
@@ -112,11 +114,19 @@ Generate a natural response to their last message. Keep it short (1-2 sentences)
             client.on('qr', async (qr) => {
                 console.log(`QR Code received for ${accountName}`);
                 try {
+                    console.log('Converting QR to data URL...');
                     const qrDataUrl = await qrcode.toDataURL(qr);
-                    this.mainWindow.webContents.send('qr-code', {
-                        accountId,
-                        qrCode: qrDataUrl
-                    });
+                    console.log('QR data URL generated, length:', qrDataUrl.length);
+                    console.log('Sending QR code to renderer...');
+                    if (this.mainWindow && this.mainWindow.webContents) {
+                        this.mainWindow.webContents.send('qr-code', {
+                            accountId,
+                            qrCode: qrDataUrl
+                        });
+                        console.log('QR code sent to renderer successfully');
+                    } else {
+                        console.error('mainWindow or webContents not available');
+                    }
                 } catch (error) {
                     console.error('Error generating QR code:', error);
                 }
@@ -231,11 +241,30 @@ Generate a natural response to their last message. Keep it short (1-2 sentences)
                             timestamp: Date.now()
                         });
 
-                        // Generate AI response after a delay (2-5 seconds to seem natural)
-                        const delay = 2000 + Math.random() * 3000;
-                        setTimeout(async () => {
-                            await this.sendAIReply(fromNumber);
-                        }, delay);
+                        // Check if this number is disabled
+                        const isDisabled = this.disabledNumbers.has(fromNumber);
+
+                        if (isDisabled) {
+                            // Queue the message for later processing
+                            console.log(`Number ${fromNumber} is disabled, queuing message`);
+                            this.queuedMessages.set(fromNumber, {
+                                message: message.body,
+                                timestamp: Date.now()
+                            });
+                            this.mainWindow.webContents.send('warming-log', {
+                                message: `Message from ${fromNumber} queued (number disabled)`
+                            });
+                        } else {
+                            // Generate AI response after a configurable delay to seem natural
+                            const delayMin = (this.warmingConfig?.delayMin || 3) * 1000;
+                            const delayMax = (this.warmingConfig?.delayMax || 8) * 1000;
+                            const delay = delayMin + Math.random() * (delayMax - delayMin);
+
+                            console.log(`Waiting ${Math.round(delay / 1000)}s before responding...`);
+                            setTimeout(async () => {
+                                await this.sendAIReply(fromNumber);
+                            }, delay);
+                        }
                     }
                 }
 
@@ -387,17 +416,24 @@ Generate a natural response to their last message. Keep it short (1-2 sentences)
         console.log('Starting AI-powered warming with config:', config);
 
         // Send initial greeting to all phone numbers
-        for (const phoneNumber of config.phoneNumbers) {
+        for (let i = 0; i < config.phoneNumbers.length; i++) {
+            const phoneNumber = config.phoneNumbers[i];
+
             // Initialize conversation
             this.activeConversations.set(phoneNumber, {
                 history: [],
                 lastMessageTime: Date.now()
             });
 
-            // Send greeting after a short delay
+            // Send greeting after a configurable delay (stagger each greeting)
+            const delayMin = (config.delayMin || 3) * 1000;
+            const delayMax = (config.delayMax || 8) * 1000;
+            const baseDelay = delayMin + Math.random() * (delayMax - delayMin);
+            const staggerDelay = i * 2000; // Stagger greetings by 2 seconds each
+
             setTimeout(async () => {
                 await this.sendInitialGreeting(phoneNumber);
-            }, 1000 + Math.random() * 2000);
+            }, baseDelay + staggerDelay);
         }
     }
 
@@ -523,6 +559,74 @@ Generate a natural response to their last message. Keep it short (1-2 sentences)
 
     hasAccount() {
         return this.client !== null;
+    }
+
+    // Set a phone number as disabled
+    setNumberDisabled(phoneNumber, disabled) {
+        if (disabled) {
+            this.disabledNumbers.add(phoneNumber);
+            console.log(`Number ${phoneNumber} disabled`);
+        } else {
+            this.disabledNumbers.delete(phoneNumber);
+            console.log(`Number ${phoneNumber} enabled`);
+        }
+    }
+
+    // Check if a number is disabled
+    isNumberDisabled(phoneNumber) {
+        return this.disabledNumbers.has(phoneNumber);
+    }
+
+    // Process queued messages when a number is re-enabled
+    async processQueuedMessages(phoneNumber) {
+        const queued = this.queuedMessages.get(phoneNumber);
+
+        if (queued && this.warmingActive) {
+            console.log(`Processing queued message for ${phoneNumber}: "${queued.message}"`);
+
+            // Make sure the conversation history is updated
+            if (!this.activeConversations.has(phoneNumber)) {
+                this.activeConversations.set(phoneNumber, { history: [], lastMessageTime: Date.now() });
+            }
+
+            const conversation = this.activeConversations.get(phoneNumber);
+
+            // Add the queued message to history if not already there
+            const alreadyInHistory = conversation.history.some(
+                h => h.text === queued.message && h.role === 'user'
+            );
+
+            if (!alreadyInHistory) {
+                conversation.history.push({
+                    role: 'user',
+                    text: queued.message,
+                    timestamp: queued.timestamp
+                });
+            }
+
+            // Clear the queue
+            this.queuedMessages.delete(phoneNumber);
+
+            // Send AI response with delay
+            const delayMin = (this.warmingConfig?.delayMin || 3) * 1000;
+            const delayMax = (this.warmingConfig?.delayMax || 8) * 1000;
+            const delay = delayMin + Math.random() * (delayMax - delayMin);
+
+            console.log(`Responding to queued message in ${Math.round(delay / 1000)}s...`);
+
+            this.mainWindow.webContents.send('warming-log', {
+                message: `Processing queued message from ${phoneNumber}`
+            });
+
+            setTimeout(async () => {
+                await this.sendAIReply(phoneNumber);
+            }, delay);
+        }
+    }
+
+    // Get queued message for a number
+    getQueuedMessage(phoneNumber) {
+        return this.queuedMessages.get(phoneNumber);
     }
 }
 

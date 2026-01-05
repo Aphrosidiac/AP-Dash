@@ -34,7 +34,9 @@ if (!fs.existsSync(PHONE_NUMBERS_FILE)) {
 if (!fs.existsSync(CONFIG_FILE)) {
     const defaultConfig = {
         apiKey: '',
-        aiPersonality: `You are a casual, friendly person chatting on WhatsApp. You're warm, engaging, and conversational. Keep your messages short (1-2 sentences), natural, and use common texting language. You're helpful and ask questions to keep the conversation flowing.`
+        aiPersonality: `You are a casual, friendly person chatting on WhatsApp. You're warm, engaging, and conversational. Keep your messages short (1-2 sentences), natural, and use common texting language. You're helpful and ask questions to keep the conversation flowing.`,
+        delayMin: 3,
+        delayMax: 8
     };
     fs.writeFileSync(CONFIG_FILE, JSON.stringify(defaultConfig, null, 2));
 }
@@ -238,6 +240,49 @@ ipcMain.handle('remove-phone-number', async (event, phoneId) => {
     }
 });
 
+// Toggle phone number enabled/disabled
+ipcMain.handle('toggle-phone-number', async (event, phoneId) => {
+    try {
+        let phoneNumbers = JSON.parse(fs.readFileSync(PHONE_NUMBERS_FILE, 'utf-8'));
+        const index = phoneNumbers.findIndex(p => p.id === phoneId);
+
+        if (index !== -1) {
+            // Toggle the enabled state (default to true if not set)
+            const currentEnabled = phoneNumbers[index].enabled !== false;
+            phoneNumbers[index].enabled = !currentEnabled;
+            fs.writeFileSync(PHONE_NUMBERS_FILE, JSON.stringify(phoneNumbers, null, 2));
+
+            const phoneNumber = phoneNumbers[index].number;
+
+            // Update WhatsApp manager's disabled list
+            whatsappManager.setNumberDisabled(phoneNumber, !phoneNumbers[index].enabled);
+
+            // If re-enabled, process any queued messages
+            if (phoneNumbers[index].enabled) {
+                whatsappManager.processQueuedMessages(phoneNumber);
+            }
+
+            return { success: true, enabled: phoneNumbers[index].enabled };
+        }
+
+        return { success: false, error: 'Phone number not found' };
+    } catch (error) {
+        console.error('Error toggling phone number:', error);
+        return { success: false, error: error.message };
+    }
+});
+
+// Get phone number enabled status
+ipcMain.handle('get-phone-enabled-status', async (event, phoneNumber) => {
+    try {
+        const phoneNumbers = JSON.parse(fs.readFileSync(PHONE_NUMBERS_FILE, 'utf-8'));
+        const phone = phoneNumbers.find(p => p.number === phoneNumber);
+        return phone ? phone.enabled !== false : true;
+    } catch (error) {
+        return true; // Default to enabled
+    }
+});
+
 // Config Management
 
 // Get config (API key)
@@ -283,7 +328,9 @@ ipcMain.handle('start-warming', async (event, config) => {
         const warmingConfig = {
             apiKey: savedConfig.apiKey,
             aiPersonality: savedConfig.aiPersonality || `You are a casual, friendly person chatting on WhatsApp. You're warm, engaging, and conversational. Keep your messages short (1-2 sentences), natural, and use common texting language. You're helpful and ask questions to keep the conversation flowing.`,
-            phoneNumbers: phoneNumbers.map(p => p.number)
+            phoneNumbers: phoneNumbers.map(p => p.number),
+            delayMin: savedConfig.delayMin || 3,
+            delayMax: savedConfig.delayMax || 8
         };
 
         await whatsappManager.startWarming(warmingConfig);

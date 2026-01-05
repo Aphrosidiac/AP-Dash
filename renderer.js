@@ -41,6 +41,20 @@ function switchTab(tabName) {
     });
     document.getElementById(`${tabName}-tab`).classList.add('active');
 
+    // Update header title
+    const titles = {
+        'dashboard': 'Dashboard',
+        'account': 'Account',
+        'phone-numbers': 'Phone Numbers',
+        'chat': 'Live Chat',
+        'warmer': 'AI Warmer',
+        'settings': 'Settings'
+    };
+    const headerTitle = document.getElementById('current-page-title');
+    if (headerTitle) {
+        headerTitle.textContent = titles[tabName] || 'Dashboard';
+    }
+
     // Refresh data when switching tabs
     if (tabName === 'account') {
         loadAccounts();
@@ -64,6 +78,7 @@ function initializeSettings() {
     const toggleBtn = document.getElementById('toggle-api-key');
     const savePersonalityBtn = document.getElementById('save-ai-personality-btn');
     const resetPersonalityBtn = document.getElementById('reset-ai-personality-btn');
+    const saveDelayBtn = document.getElementById('save-delay-btn');
 
     saveBtn.addEventListener('click', saveApiKey);
     testBtn.addEventListener('click', testApiKey);
@@ -80,12 +95,15 @@ function initializeSettings() {
 
     savePersonalityBtn.addEventListener('click', saveAIPersonality);
     resetPersonalityBtn.addEventListener('click', resetAIPersonality);
+    saveDelayBtn.addEventListener('click', saveDelaySettings);
 }
 
 async function loadConfig() {
     const config = await ipcRenderer.invoke('get-config');
     document.getElementById('api-key-input').value = config.apiKey || '';
     document.getElementById('ai-personality-input').value = config.aiPersonality || '';
+    document.getElementById('delay-min-input').value = config.delayMin || 3;
+    document.getElementById('delay-max-input').value = config.delayMax || 8;
 
     if (config.apiKey) {
         showApiStatus('API key configured', 'success');
@@ -181,6 +199,46 @@ function showApiStatus(message, type) {
 
 function showAIPersonalityStatus(message, type) {
     const statusEl = document.getElementById('ai-personality-status');
+    statusEl.textContent = message;
+    statusEl.className = 'api-status ' + type;
+}
+
+async function saveDelaySettings() {
+    const delayMin = parseInt(document.getElementById('delay-min-input').value) || 3;
+    const delayMax = parseInt(document.getElementById('delay-max-input').value) || 8;
+
+    // Validation
+    if (delayMin < 1) {
+        showDelayStatus('Minimum delay must be at least 1 second', 'error');
+        return;
+    }
+
+    if (delayMax < delayMin) {
+        showDelayStatus('Maximum delay must be greater than or equal to minimum delay', 'error');
+        return;
+    }
+
+    if (delayMax > 120) {
+        showDelayStatus('Maximum delay cannot exceed 120 seconds', 'error');
+        return;
+    }
+
+    const config = await ipcRenderer.invoke('get-config');
+    config.delayMin = delayMin;
+    config.delayMax = delayMax;
+
+    const result = await ipcRenderer.invoke('save-config', config);
+
+    if (result.success) {
+        showDelayStatus(`Delay settings saved: ${delayMin}s - ${delayMax}s`, 'success');
+        addActivityLog(`Response delay updated: ${delayMin}s - ${delayMax}s`);
+    } else {
+        showDelayStatus('Error saving delay settings', 'error');
+    }
+}
+
+function showDelayStatus(message, type) {
+    const statusEl = document.getElementById('delay-status');
     statusEl.textContent = message;
     statusEl.className = 'api-status ' + type;
 }
@@ -437,7 +495,14 @@ async function loadPhoneNumbers() {
     if (phoneNumbers.length === 0) {
         listEl.innerHTML = `
             <div class="empty-state">
-                <div class="empty-icon">👥</div>
+                <div class="empty-icon">
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                        <circle cx="9" cy="7" r="4"></circle>
+                        <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                        <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                    </svg>
+                </div>
                 <h3>No phone numbers added yet</h3>
                 <p>Click "Add Phone Number" to add target numbers</p>
             </div>
@@ -445,17 +510,34 @@ async function loadPhoneNumbers() {
         return;
     }
 
-    listEl.innerHTML = phoneNumbers.map(phone => `
-        <div class="phone-number-card">
-            <div class="phone-info">
-                <h3>${phone.name}</h3>
-                <p class="phone-number">+${phone.number}</p>
+    listEl.innerHTML = phoneNumbers.map(phone => {
+        const isEnabled = phone.enabled !== false;
+        return `
+            <div class="phone-number-card ${isEnabled ? '' : 'phone-disabled'}">
+                <div class="phone-info">
+                    <h3>${phone.name}</h3>
+                    <p class="phone-number">+${phone.number}</p>
+                    ${!isEnabled ? '<span class="phone-status-badge">Paused</span>' : ''}
+                </div>
+                <div class="phone-actions">
+                    <label class="toggle-switch" title="${isEnabled ? 'Disable AI responses' : 'Enable AI responses'}">
+                        <input type="checkbox" ${isEnabled ? 'checked' : ''} onchange="togglePhoneNumber('${phone.id}', this.checked)">
+                        <span class="toggle-slider"></span>
+                    </label>
+                    <button class="btn btn-small btn-danger" onclick="removePhoneNumber('${phone.id}')">Remove</button>
+                </div>
             </div>
-            <div class="phone-actions">
-                <button class="btn btn-small btn-danger" onclick="removePhoneNumber('${phone.id}')">Remove</button>
-            </div>
-        </div>
-    `).join('');
+        `;
+    }).join('');
+}
+
+async function togglePhoneNumber(phoneId, enabled) {
+    const result = await ipcRenderer.invoke('toggle-phone-number', phoneId);
+    if (result.success) {
+        loadPhoneNumbers();
+        const status = result.enabled ? 'enabled' : 'paused';
+        addActivityLog(`Phone number ${status}`);
+    }
 }
 
 async function removePhoneNumber(phoneId) {
@@ -735,22 +817,35 @@ function addWarmingLog(message) {
 
 // IPC Listeners
 function setupIpcListeners() {
+    console.log('Setting up IPC listeners...');
+
     // QR Code received
     ipcRenderer.on('qr-code', (event, data) => {
-        console.log('QR Code received:', data.accountId, 'Current:', currentAccountId);
+        console.log('QR Code received in renderer:', data.accountId);
 
-        // Always show QR code if we're in the modal
-        const modal = document.getElementById('add-account-modal');
-        if (modal.classList.contains('active')) {
-            document.querySelector('.qr-loading').style.display = 'none';
-            const qrImage = document.getElementById('qr-code-image');
+        // Get elements
+        const qrLoading = document.querySelector('.qr-loading');
+        const qrImage = document.getElementById('qr-code-image');
+        const qrStatus = document.getElementById('qr-status');
+        const qrSection = document.getElementById('qr-code-section');
+
+        // Hide loading, show QR
+        if (qrLoading) qrLoading.style.display = 'none';
+
+        if (qrImage && data.qrCode) {
             qrImage.src = data.qrCode;
             qrImage.style.display = 'block';
-            document.getElementById('qr-status').textContent = 'Scan the QR code with WhatsApp';
-
-            // Update current account ID
-            currentAccountId = data.accountId;
+            qrImage.style.visibility = 'visible';
+            qrImage.style.opacity = '1';
         }
+
+        if (qrStatus) qrStatus.textContent = 'Scan the QR code with WhatsApp';
+        if (qrSection) qrSection.style.display = 'block';
+
+        // Update current account ID
+        currentAccountId = data.accountId;
+
+        console.log('QR code should now be visible');
     });
 
     // Account ready
