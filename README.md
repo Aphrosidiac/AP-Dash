@@ -4,7 +4,7 @@ A professional Electron.js desktop application for warming WhatsApp accounts thr
 
 ## Features
 
-- **Account Manager**: Add multiple WhatsApp accounts via QR code scanning
+- **Account Manager**: Add a whatsaoo account and muktiple numbers to warmup
 - **Live Chat View**: See real-time messages being sent and received
 - **Auto Warmer**: Automated warming with configurable message frequency
 - **Dashboard**: Track stats including connected accounts and daily message count
