@@ -455,6 +455,34 @@
                         </div>
 
                         <div class="settings-section">
+                            <h3>Typing Duration</h3>
+                            <p class="settings-description">
+                                Set how long the typing indicator is shown before sending a message. Must be less than or equal to the response delay.
+                            </p>
+
+                            <div class="delay-settings">
+                                <div class="delay-input-group">
+                                    <div class="form-group">
+                                        <label for="typing-min-input">Minimum Duration (seconds)</label>
+                                        <input type="number" id="typing-min-input" min="1" max="60" value="2" class="form-input">
+                                    </div>
+                                    <div class="delay-range-separator">to</div>
+                                    <div class="form-group">
+                                        <label for="typing-max-input">Maximum Duration (seconds)</label>
+                                        <input type="number" id="typing-max-input" min="1" max="60" value="5" class="form-input">
+                                    </div>
+                                </div>
+                                <small>The typing indicator will show for a random duration between these values. Cannot exceed response delay.</small>
+                            </div>
+
+                            <div class="form-actions">
+                                <button class="btn btn-primary" id="save-typing-btn">Save Typing Settings</button>
+                            </div>
+
+                            <div class="api-status" id="typing-status"></div>
+                        </div>
+
+                        <div class="settings-section">
                             <h3>Sticker Settings</h3>
                             <p class="settings-description">
                                 Configure AI-powered sticker sending. The AI will analyze conversation context to choose appropriate stickers.

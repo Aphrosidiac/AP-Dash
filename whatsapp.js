@@ -208,8 +208,7 @@ Respond with just the single category word, nothing else.`;
             const chatId = `${phoneNumber}@c.us`;
             const chat = await this.client.getChatById(chatId);
 
-            // Show typing indicator
-            await chat.sendStateTyping();
+            // Note: Typing indicator already shown in sendAIReply before this function is called
 
             // Load sticker using MessageMedia
             const media = MessageMedia.fromFilePath(stickerPath);
@@ -358,8 +357,7 @@ Generate a natural, casual message (1-2 sentences) to accompany this image. Make
             const chatId = `${phoneNumber}@c.us`;
             const chat = await this.client.getChatById(chatId);
 
-            // Show typing indicator
-            await chat.sendStateTyping();
+            // Note: Typing indicator already shown in sendAIReply before this function is called
 
             // Generate AI message about the image using context
             const conversation = this.activeConversations.get(phoneNumber);
@@ -427,8 +425,10 @@ Generate a natural, casual message (1-2 sentences) to accompany this image. Make
                 const chatId = `${phoneNumber}@c.us`;
                 const chat = await this.client.getChatById(chatId);
 
-                // Show typing indicator
+                // Show typing indicator with random duration (2-4 seconds for blast)
                 await chat.sendStateTyping();
+                const typingDuration = 2000 + Math.random() * 2000; // 2-4 seconds
+                await new Promise(resolve => setTimeout(resolve, typingDuration));
 
                 if (imageData && imageData.base64Data) {
                     // Send image with message as caption
@@ -972,9 +972,17 @@ Generate a natural, casual message (1-2 sentences) to accompany this image. Make
             // Get chat object for typing indicator
             const chat = await this.client.getChatById(chatId);
 
+            // Calculate random typing duration from config
+            const typingMin = (this.warmingConfig?.typingMin || 2) * 1000; // Convert to milliseconds
+            const typingMax = (this.warmingConfig?.typingMax || 5) * 1000;
+            const typingDuration = typingMin + Math.random() * (typingMax - typingMin);
+
             // Show typing indicator
             await chat.sendStateTyping();
-            console.log(`Showing typing indicator to ${phoneNumber}`);
+            console.log(`Showing typing indicator for ${Math.round(typingDuration / 1000)}s to ${phoneNumber}`);
+
+            // Wait for typing duration before proceeding
+            await new Promise(resolve => setTimeout(resolve, typingDuration));
 
             // NEW: Determine if we should send media (10% chance)
             const shouldSendMedia = this.mediaConfig?.enabled &&

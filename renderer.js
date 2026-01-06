@@ -91,6 +91,7 @@ function initializeSettings() {
     const savePersonalityBtn = document.getElementById('save-ai-personality-btn');
     const resetPersonalityBtn = document.getElementById('reset-ai-personality-btn');
     const saveDelayBtn = document.getElementById('save-delay-btn');
+    const saveTypingBtn = document.getElementById('save-typing-btn');
 
     saveBtn.addEventListener('click', saveApiKey);
     testBtn.addEventListener('click', testApiKey);
@@ -108,6 +109,9 @@ function initializeSettings() {
     savePersonalityBtn.addEventListener('click', saveAIPersonality);
     resetPersonalityBtn.addEventListener('click', resetAIPersonality);
     saveDelayBtn.addEventListener('click', saveDelaySettings);
+    if (saveTypingBtn) {
+        saveTypingBtn.addEventListener('click', saveTypingSettings);
+    }
 }
 
 async function loadConfig() {
@@ -116,6 +120,8 @@ async function loadConfig() {
     document.getElementById('ai-personality-input').value = config.aiPersonality || '';
     document.getElementById('delay-min-input').value = config.delayMin || 3;
     document.getElementById('delay-max-input').value = config.delayMax || 8;
+    document.getElementById('typing-min-input').value = config.typingMin || 2;
+    document.getElementById('typing-max-input').value = config.typingMax || 5;
 
     if (config.apiKey) {
         showApiStatus('API key configured', 'success');
@@ -257,6 +263,49 @@ async function saveDelaySettings() {
 
 function showDelayStatus(message, type) {
     const statusEl = document.getElementById('delay-status');
+    statusEl.textContent = message;
+    statusEl.className = 'api-status ' + type;
+}
+
+async function saveTypingSettings() {
+    const typingMin = parseInt(document.getElementById('typing-min-input').value) || 2;
+    const typingMax = parseInt(document.getElementById('typing-max-input').value) || 5;
+    const config = await ipcRenderer.invoke('get-config');
+    const delayMin = config.delayMin || 3;
+    const delayMax = config.delayMax || 8;
+
+    // Validation
+    if (typingMin < 1) {
+        showTypingStatus('Minimum typing duration must be at least 1 second', 'error');
+        return;
+    }
+
+    if (typingMax < typingMin) {
+        showTypingStatus('Maximum typing duration must be greater than or equal to minimum', 'error');
+        return;
+    }
+
+    // CRITICAL: Typing duration cannot exceed response delay minimum
+    if (typingMax > delayMin) {
+        showTypingStatus(`Maximum typing duration (${typingMax}s) cannot exceed minimum response delay (${delayMin}s)`, 'error');
+        return;
+    }
+
+    config.typingMin = typingMin;
+    config.typingMax = typingMax;
+
+    const result = await ipcRenderer.invoke('save-config', config);
+
+    if (result.success) {
+        showTypingStatus(`Typing duration saved: ${typingMin}s - ${typingMax}s`, 'success');
+        addActivityLog(`Typing duration updated: ${typingMin}s - ${typingMax}s`);
+    } else {
+        showTypingStatus('Error saving typing settings', 'error');
+    }
+}
+
+function showTypingStatus(message, type) {
+    const statusEl = document.getElementById('typing-status');
     statusEl.textContent = message;
     statusEl.className = 'api-status ' + type;
 }
@@ -758,7 +807,14 @@ function loadDemoMessages() {
         ]
     };
 
-    displaySegmentedMessages(demoMessages);
+    // Create fake targeted numbers for demo mode
+    const demoTargetedNumbers = [
+        { number: '60123456789' },
+        { number: '60198765432' },
+        { number: '60167894321' }
+    ];
+
+    displaySegmentedMessages(demoMessages, demoTargetedNumbers);
 
     // Toggle buttons
     document.getElementById('load-demo-messages-btn').style.display = 'none';
@@ -779,10 +835,11 @@ function clearDemoMessages() {
 
 async function loadMessages() {
     const messagesByPhone = await ipcRenderer.invoke('get-messages-by-phone');
-    displaySegmentedMessages(messagesByPhone);
+    const targetedNumbers = await ipcRenderer.invoke('get-phone-numbers');
+    displaySegmentedMessages(messagesByPhone, targetedNumbers);
 }
 
-function displaySegmentedMessages(messagesByPhone) {
+function displaySegmentedMessages(messagesByPhone, targetedNumbers = []) {
     const container = document.getElementById('chat-segments-container');
 
     if (!messagesByPhone || Object.keys(messagesByPhone).length === 0) {
@@ -796,10 +853,24 @@ function displaySegmentedMessages(messagesByPhone) {
         return;
     }
 
+    // Create a set of targeted phone numbers for quick lookup
+    const targetedPhoneSet = new Set(targetedNumbers.map(p => p.number));
+
     container.innerHTML = '';
 
     for (const [phoneNumber, messages] of Object.entries(messagesByPhone)) {
+        // Skip if no messages
         if (messages.length === 0) continue;
+
+        // Skip status broadcasts (usually contains "status" or "@broadcast")
+        if (phoneNumber.includes('status') || phoneNumber.includes('broadcast')) {
+            continue;
+        }
+
+        // Skip if not in targeted phone numbers list
+        if (!targetedPhoneSet.has(phoneNumber)) {
+            continue;
+        }
 
         const segment = document.createElement('div');
         segment.className = 'chat-segment';
@@ -852,6 +923,17 @@ function displaySegmentedMessages(messagesByPhone) {
 
         // Auto-scroll to bottom of each segment
         chatContainer.scrollTop = chatContainer.scrollHeight;
+    }
+
+    // If no targeted conversations were found, show empty state
+    if (container.children.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-icon">💬</div>
+                <h3>No conversations with targeted numbers</h3>
+                <p>Conversations will appear here when you message your targeted phone numbers</p>
+            </div>
+        `;
     }
 }
 

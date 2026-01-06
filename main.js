@@ -356,6 +356,8 @@ ipcMain.handle('start-warming', async (event, config) => {
             phoneNumbers: phoneNumbers.map(p => p.number),
             delayMin: savedConfig.delayMin || 3,
             delayMax: savedConfig.delayMax || 8,
+            typingMin: savedConfig.typingMin || 2,
+            typingMax: savedConfig.typingMax || 5,
             stickerSettings: savedConfig.stickerSettings,
             mediaSettings: savedConfig.mediaSettings
         };
