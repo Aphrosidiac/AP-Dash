@@ -12,6 +12,9 @@ const ACCOUNTS_FILE = path.join(DATA_DIR, 'accounts.json');
 const STATS_FILE = path.join(DATA_DIR, 'stats.json');
 const PHONE_NUMBERS_FILE = path.join(DATA_DIR, 'phone_numbers.json');
 const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
+const MEDIA_DIR = path.join(DATA_DIR, 'media');
+const MEDIA_FILES_DIR = path.join(MEDIA_DIR, 'files');
+const MEDIA_INDEX_FILE = path.join(MEDIA_DIR, 'media-items.json');
 
 // Ensure directories exist
 if (!fs.existsSync(DATA_DIR)) {
@@ -19,6 +22,12 @@ if (!fs.existsSync(DATA_DIR)) {
 }
 if (!fs.existsSync(SESSIONS_DIR)) {
     fs.mkdirSync(SESSIONS_DIR, { recursive: true });
+}
+if (!fs.existsSync(MEDIA_DIR)) {
+    fs.mkdirSync(MEDIA_DIR, { recursive: true });
+}
+if (!fs.existsSync(MEDIA_FILES_DIR)) {
+    fs.mkdirSync(MEDIA_FILES_DIR, { recursive: true });
 }
 
 // Initialize data files
@@ -31,12 +40,28 @@ if (!fs.existsSync(STATS_FILE)) {
 if (!fs.existsSync(PHONE_NUMBERS_FILE)) {
     fs.writeFileSync(PHONE_NUMBERS_FILE, JSON.stringify([]));
 }
+if (!fs.existsSync(MEDIA_INDEX_FILE)) {
+    fs.writeFileSync(MEDIA_INDEX_FILE, JSON.stringify([], null, 2));
+}
 if (!fs.existsSync(CONFIG_FILE)) {
     const defaultConfig = {
         apiKey: '',
         aiPersonality: `You are a casual, friendly person chatting on WhatsApp. You're warm, engaging, and conversational. Keep your messages short (1-2 sentences), natural, and use common texting language. You're helpful and ask questions to keep the conversation flowing.`,
         delayMin: 3,
-        delayMax: 8
+        delayMax: 8,
+        stickerSettings: {
+            enabled: true,
+            frequency: 0.12,
+            fallbackToText: true,
+            categories: ['funny', 'love', 'sad', 'excited', 'thumbs_up', 'thinking', 'wow', 'casual']
+        },
+        mediaSettings: {
+            enabled: true,
+            frequency: 0.10,
+            maxFileSize: 5242880,
+            allowedFormats: ['image/jpeg', 'image/png', 'image/jpg'],
+            requireContext: true
+        }
     };
     fs.writeFileSync(CONFIG_FILE, JSON.stringify(defaultConfig, null, 2));
 }
@@ -418,6 +443,326 @@ ipcMain.handle('get-messages', async () => {
 // Get messages segmented by phone number
 ipcMain.handle('get-messages-by-phone', async () => {
     return whatsappManager.getAllMessagesByPhone();
+});
+
+// Sticker Management IPC Handlers
+
+// Get sticker categories and counts
+ipcMain.handle('get-sticker-categories', async () => {
+    try {
+        const stickersDir = path.join(DATA_DIR, 'stickers');
+
+        if (!fs.existsSync(stickersDir)) {
+            return [];
+        }
+
+        const categories = fs.readdirSync(stickersDir, { withFileTypes: true })
+            .filter(dirent => dirent.isDirectory())
+            .map(dirent => {
+                const categoryPath = path.join(stickersDir, dirent.name);
+                const files = fs.readdirSync(categoryPath)
+                    .filter(f => f.endsWith('.webp'));
+
+                return {
+                    name: dirent.name,
+                    count: files.length,
+                    stickers: files
+                };
+            });
+
+        return categories;
+    } catch (error) {
+        console.error('Error getting sticker categories:', error);
+        return [];
+    }
+});
+
+// Upload sticker file
+ipcMain.handle('upload-sticker', async (event, { category, fileName, fileData }) => {
+    try {
+        const stickersDir = path.join(DATA_DIR, 'stickers');
+        const categoryPath = path.join(stickersDir, category);
+
+        // Ensure category directory exists
+        if (!fs.existsSync(categoryPath)) {
+            fs.mkdirSync(categoryPath, { recursive: true });
+        }
+
+        // Ensure .webp extension
+        if (!fileName.endsWith('.webp')) {
+            fileName = fileName.replace(/\.[^.]+$/, '.webp');
+        }
+
+        const filePath = path.join(categoryPath, fileName);
+
+        // Write file (fileData should be base64 or buffer)
+        const buffer = Buffer.from(fileData, 'base64');
+        fs.writeFileSync(filePath, buffer);
+
+        return { success: true, path: filePath };
+    } catch (error) {
+        console.error('Error uploading sticker:', error);
+        return { success: false, error: error.message };
+    }
+});
+
+// Delete sticker
+ipcMain.handle('delete-sticker', async (event, { category, fileName }) => {
+    try {
+        const stickersDir = path.join(DATA_DIR, 'stickers');
+        const filePath = path.join(stickersDir, category, fileName);
+
+        if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+            return { success: true };
+        }
+
+        return { success: false, error: 'File not found' };
+    } catch (error) {
+        console.error('Error deleting sticker:', error);
+        return { success: false, error: error.message };
+    }
+});
+
+// Get sticker file (for preview)
+ipcMain.handle('get-sticker', async (event, { category, fileName }) => {
+    try {
+        const stickersDir = path.join(DATA_DIR, 'stickers');
+        const filePath = path.join(stickersDir, category, fileName);
+
+        if (fs.existsSync(filePath)) {
+            const data = fs.readFileSync(filePath);
+            return {
+                success: true,
+                data: data.toString('base64'),
+                mimeType: 'image/webp'
+            };
+        }
+
+        return { success: false, error: 'File not found' };
+    } catch (error) {
+        console.error('Error getting sticker:', error);
+        return { success: false, error: error.message };
+    }
+});
+
+// Media Management IPC Handlers
+
+// Get all media items
+ipcMain.handle('get-media-items', async () => {
+    try {
+        const data = fs.readFileSync(MEDIA_INDEX_FILE, 'utf-8');
+        return JSON.parse(data);
+    } catch (error) {
+        console.error('Error getting media items:', error);
+        return [];
+    }
+});
+
+// Upload media with context
+ipcMain.handle('upload-media', async (event, { fileName, fileData, context, mimeType }) => {
+    try {
+        // Validate context is provided
+        if (!context || context.trim().length === 0) {
+            return { success: false, error: 'Context is required' };
+        }
+
+        if (context.trim().length < 10) {
+            return { success: false, error: 'Context must be at least 10 characters' };
+        }
+
+        // Validate file format
+        const config = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
+        const allowedFormats = config.mediaSettings?.allowedFormats ||
+                              ['image/jpeg', 'image/png', 'image/jpg'];
+
+        if (!allowedFormats.includes(mimeType)) {
+            return { success: false, error: 'Unsupported file format. Only JPG and PNG are allowed.' };
+        }
+
+        // Generate unique filename
+        const timestamp = Date.now();
+        const extension = fileName.split('.').pop();
+        const uniqueFileName = `media_${timestamp}.${extension}`;
+        const filePath = path.join(MEDIA_FILES_DIR, uniqueFileName);
+
+        // Decode and write file
+        const buffer = Buffer.from(fileData, 'base64');
+
+        // Check file size
+        const maxFileSize = config.mediaSettings?.maxFileSize || 5242880; // 5MB
+        if (buffer.length > maxFileSize) {
+            return {
+                success: false,
+                error: `File too large. Maximum size is ${(maxFileSize / 1024 / 1024).toFixed(1)}MB`
+            };
+        }
+
+        fs.writeFileSync(filePath, buffer);
+
+        // Create media item entry
+        const mediaItem = {
+            id: `media_${timestamp}`,
+            fileName: uniqueFileName,
+            originalName: fileName,
+            filePath: filePath,
+            context: context.trim(),
+            mimeType: mimeType,
+            fileSize: buffer.length,
+            uploadedAt: new Date().toISOString()
+        };
+
+        // Load existing media items
+        const mediaItems = JSON.parse(fs.readFileSync(MEDIA_INDEX_FILE, 'utf-8'));
+        mediaItems.push(mediaItem);
+
+        // Save updated index
+        fs.writeFileSync(MEDIA_INDEX_FILE, JSON.stringify(mediaItems, null, 2));
+
+        // Reload media in WhatsAppManager
+        if (whatsappManager) {
+            whatsappManager.loadMediaItems();
+        }
+
+        return { success: true, mediaItem };
+
+    } catch (error) {
+        console.error('Error uploading media:', error);
+        return { success: false, error: error.message };
+    }
+});
+
+// Delete media item
+ipcMain.handle('delete-media', async (event, { mediaId }) => {
+    try {
+        // Load media items
+        let mediaItems = JSON.parse(fs.readFileSync(MEDIA_INDEX_FILE, 'utf-8'));
+
+        // Find media item
+        const mediaItem = mediaItems.find(item => item.id === mediaId);
+        if (!mediaItem) {
+            return { success: false, error: 'Media item not found' };
+        }
+
+        // Delete file
+        if (fs.existsSync(mediaItem.filePath)) {
+            fs.unlinkSync(mediaItem.filePath);
+        }
+
+        // Remove from index
+        mediaItems = mediaItems.filter(item => item.id !== mediaId);
+        fs.writeFileSync(MEDIA_INDEX_FILE, JSON.stringify(mediaItems, null, 2));
+
+        // Reload media in WhatsAppManager
+        if (whatsappManager) {
+            whatsappManager.loadMediaItems();
+        }
+
+        return { success: true };
+
+    } catch (error) {
+        console.error('Error deleting media:', error);
+        return { success: false, error: error.message };
+    }
+});
+
+// Get media file (for preview)
+ipcMain.handle('get-media-file', async (event, { mediaId }) => {
+    try {
+        const mediaItems = JSON.parse(fs.readFileSync(MEDIA_INDEX_FILE, 'utf-8'));
+        const mediaItem = mediaItems.find(item => item.id === mediaId);
+
+        if (!mediaItem || !fs.existsSync(mediaItem.filePath)) {
+            return { success: false, error: 'File not found' };
+        }
+
+        const data = fs.readFileSync(mediaItem.filePath);
+        return {
+            success: true,
+            data: data.toString('base64'),
+            mimeType: mediaItem.mimeType
+        };
+
+    } catch (error) {
+        console.error('Error getting media file:', error);
+        return { success: false, error: error.message };
+    }
+});
+
+// Update media context
+ipcMain.handle('update-media-context', async (event, { mediaId, newContext }) => {
+    try {
+        if (!newContext || newContext.trim().length === 0) {
+            return { success: false, error: 'Context cannot be empty' };
+        }
+
+        if (newContext.trim().length < 10) {
+            return { success: false, error: 'Context must be at least 10 characters' };
+        }
+
+        let mediaItems = JSON.parse(fs.readFileSync(MEDIA_INDEX_FILE, 'utf-8'));
+        const itemIndex = mediaItems.findIndex(item => item.id === mediaId);
+
+        if (itemIndex === -1) {
+            return { success: false, error: 'Media item not found' };
+        }
+
+        mediaItems[itemIndex].context = newContext.trim();
+        fs.writeFileSync(MEDIA_INDEX_FILE, JSON.stringify(mediaItems, null, 2));
+
+        // Reload media in WhatsAppManager
+        if (whatsappManager) {
+            whatsappManager.loadMediaItems();
+        }
+
+        return { success: true };
+
+    } catch (error) {
+        console.error('Error updating media context:', error);
+        return { success: false, error: error.message };
+    }
+});
+
+// Blasting handlers
+ipcMain.handle('start-blast', async (event, { message, imageData }) => {
+    try {
+        // Validate inputs
+        if (!message || message.trim().length === 0) {
+            return { success: false, error: 'Message text is required' };
+        }
+
+        // Check if WhatsApp is ready
+        if (!whatsappManager.client || !whatsappManager.client.info) {
+            return { success: false, error: 'WhatsApp is not connected. Please add and connect your account first.' };
+        }
+
+        // Start blast with progress callback
+        const results = await whatsappManager.blastMessage(message, imageData, (progress) => {
+            // Send progress updates to renderer
+            mainWindow.webContents.send('blast-progress', progress);
+        });
+
+        return { success: true, results: results };
+    } catch (error) {
+        console.error('Error starting blast:', error);
+        return { success: false, error: error.message };
+    }
+});
+
+ipcMain.handle('get-blast-stats', async () => {
+    try {
+        const phoneNumbers = JSON.parse(fs.readFileSync(PHONE_NUMBERS_FILE, 'utf-8'));
+        const enabledNumbers = phoneNumbers.filter(p => p.enabled !== false);
+
+        return {
+            success: true,
+            totalRecipients: enabledNumbers.length,
+            estimatedTime: enabledNumbers.length * 3 // 3 seconds per recipient
+        };
+    } catch (error) {
+        console.error('Error getting blast stats:', error);
+        return { success: false, error: error.message };
+    }
 });
 
 console.log('WhatsApp Warmer Started');

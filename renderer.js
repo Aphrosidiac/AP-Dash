@@ -13,6 +13,9 @@ document.addEventListener('DOMContentLoaded', () => {
     initializePhoneNumbersTab();
     initializeWarmerTab();
     initializeChatTab();
+    initializeStickersTab();
+    initializeMediaTab();
+    initializeBlastingTab();
     loadInitialData();
     setupIpcListeners();
 });
@@ -48,6 +51,9 @@ function switchTab(tabName) {
         'phone-numbers': 'Phone Numbers',
         'chat': 'Live Chat',
         'warmer': 'AI Warmer',
+        'stickers': 'Stickers',
+        'media': 'Media Library',
+        'blasting': 'Message Blasting',
         'settings': 'Settings'
     };
     const headerTitle = document.getElementById('current-page-title');
@@ -64,6 +70,12 @@ function switchTab(tabName) {
         loadMessages();
     } else if (tabName === 'warmer') {
         checkRequirements();
+    } else if (tabName === 'stickers') {
+        loadStickerCategories();
+    } else if (tabName === 'media') {
+        loadMediaItems();
+    } else if (tabName === 'blasting') {
+        loadBlastStats();
     } else if (tabName === 'dashboard') {
         loadStats();
     } else if (tabName === 'settings') {
@@ -108,6 +120,12 @@ async function loadConfig() {
     if (config.apiKey) {
         showApiStatus('API key configured', 'success');
     }
+
+    // Load sticker settings
+    await loadStickerSettings();
+
+    // Load media settings
+    await loadMediaSettings();
 }
 
 async function saveApiKey() {
@@ -981,6 +999,30 @@ function setupIpcListeners() {
         addWarmingLog(`Error: ${data.error}`);
         addActivityLog(`Error: ${data.error}`);
     });
+
+    // Blast progress
+    ipcRenderer.on('blast-progress', (event, progress) => {
+        const sentCount = document.getElementById('blast-sent-count');
+        const progressPercent = document.getElementById('blast-progress');
+        const progressBar = document.getElementById('blast-progress-bar');
+
+        if (sentCount) sentCount.textContent = progress.sent;
+        if (progressPercent) {
+            const percent = Math.round((progress.current / progress.total) * 100);
+            progressPercent.textContent = `${percent}%`;
+        }
+        if (progressBar) {
+            const percent = (progress.current / progress.total) * 100;
+            progressBar.style.width = `${percent}%`;
+        }
+
+        // Show current status
+        if (progress.error) {
+            showBlastStatus(`Failed to send to +${progress.phoneNumber}: ${progress.error}`, 'warning');
+        } else {
+            showBlastStatus(`Sending to +${progress.phoneNumber}... (${progress.current}/${progress.total})`, 'info');
+        }
+    });
 }
 
 // Load initial data
@@ -1004,7 +1046,809 @@ setInterval(async () => {
     }
 }, 2000);
 
+// Sticker Management
+
+function initializeStickersTab() {
+    const uploadBtn = document.getElementById('upload-sticker-btn');
+    const closeModal = document.getElementById('close-sticker-modal');
+    const confirmUploadBtn = document.getElementById('confirm-upload-sticker-btn');
+    const fileInput = document.getElementById('sticker-file-input');
+
+    if (uploadBtn) {
+        uploadBtn.addEventListener('click', openUploadStickerModal);
+    }
+    if (closeModal) {
+        closeModal.addEventListener('click', closeUploadStickerModal);
+    }
+    if (confirmUploadBtn) {
+        confirmUploadBtn.addEventListener('click', uploadSticker);
+    }
+    if (fileInput) {
+        fileInput.addEventListener('change', previewSticker);
+    }
+
+    const modal = document.getElementById('upload-sticker-modal');
+    if (modal) {
+        modal.addEventListener('click', (e) => {
+            if (e.target.classList.contains('modal')) {
+                closeUploadStickerModal();
+            }
+        });
+    }
+
+    // Initialize sticker settings
+    const frequencyInput = document.getElementById('sticker-frequency-input');
+    const frequencyValue = document.getElementById('sticker-frequency-value');
+
+    if (frequencyInput && frequencyValue) {
+        frequencyInput.addEventListener('input', (e) => {
+            frequencyValue.textContent = `${e.target.value}%`;
+        });
+    }
+
+    const saveStickerSettingsBtn = document.getElementById('save-sticker-settings-btn');
+    if (saveStickerSettingsBtn) {
+        saveStickerSettingsBtn.addEventListener('click', saveStickerSettings);
+    }
+}
+
+function openUploadStickerModal() {
+    document.getElementById('upload-sticker-modal').classList.add('active');
+    document.getElementById('sticker-file-input').value = '';
+    document.getElementById('sticker-preview').innerHTML = '';
+}
+
+function closeUploadStickerModal() {
+    document.getElementById('upload-sticker-modal').classList.remove('active');
+}
+
+function previewSticker(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        const preview = document.getElementById('sticker-preview');
+        preview.innerHTML = `<img src="${e.target.result}" alt="Sticker Preview" style="max-width: 200px; max-height: 200px;">`;
+    };
+    reader.readAsDataURL(file);
+}
+
+async function uploadSticker() {
+    const fileInput = document.getElementById('sticker-file-input');
+    const category = document.getElementById('sticker-category-select').value;
+
+    if (!fileInput.files[0]) {
+        alert('Please select a file');
+        return;
+    }
+
+    const file = fileInput.files[0];
+
+    // Validate file type
+    if (!file.type.includes('webp') && !file.name.endsWith('.webp')) {
+        alert('Only WebP format is supported');
+        return;
+    }
+
+    // Read file as base64
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+        const base64Data = e.target.result.split(',')[1];
+
+        const result = await ipcRenderer.invoke('upload-sticker', {
+            category: category,
+            fileName: file.name,
+            fileData: base64Data
+        });
+
+        if (result.success) {
+            closeUploadStickerModal();
+            loadStickerCategories();
+            addActivityLog(`Sticker uploaded to ${category} category`);
+        } else {
+            alert('Error uploading sticker: ' + result.error);
+        }
+    };
+
+    reader.readAsDataURL(file);
+}
+
+async function loadStickerCategories() {
+    const categories = await ipcRenderer.invoke('get-sticker-categories');
+    const container = document.getElementById('sticker-categories-container');
+
+    if (categories.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-icon">📎</div>
+                <h3>No stickers uploaded yet</h3>
+                <p>Click "Upload Sticker" to add stickers to your collection</p>
+            </div>
+        `;
+        return;
+    }
+
+    let html = '';
+    for (const category of categories) {
+        let stickersHtml = '';
+        for (const sticker of category.stickers) {
+            const stickerData = await getStickerPreview(category.name, sticker);
+            stickersHtml += `
+                <div class="sticker-item">
+                    <img src="data:image/webp;base64,${stickerData}"
+                         alt="${sticker}"
+                         class="sticker-thumbnail">
+                    <button class="sticker-delete-btn" onclick="deleteSticker('${category.name}', '${sticker}')">×</button>
+                </div>
+            `;
+        }
+
+        html += `
+            <div class="sticker-category-card">
+                <div class="category-header">
+                    <h3>${category.name.charAt(0).toUpperCase() + category.name.slice(1)}</h3>
+                    <span class="category-count">${category.count} stickers</span>
+                </div>
+                <div class="sticker-grid">
+                    ${stickersHtml}
+                </div>
+            </div>
+        `;
+    }
+
+    container.innerHTML = html;
+}
+
+async function getStickerPreview(category, fileName) {
+    const result = await ipcRenderer.invoke('get-sticker', {
+        category: category,
+        fileName: fileName
+    });
+
+    return result.success ? result.data : '';
+}
+
+async function deleteSticker(category, fileName) {
+    if (!confirm(`Delete sticker "${fileName}" from ${category}?`)) {
+        return;
+    }
+
+    const result = await ipcRenderer.invoke('delete-sticker', {
+        category: category,
+        fileName: fileName
+    });
+
+    if (result.success) {
+        loadStickerCategories();
+        addActivityLog(`Sticker deleted from ${category}`);
+    } else {
+        alert('Error deleting sticker: ' + result.error);
+    }
+}
+
+// Sticker Settings
+
+async function loadStickerSettings() {
+    const config = await ipcRenderer.invoke('get-config');
+    const settings = config.stickerSettings || {
+        enabled: true,
+        frequency: 0.12,
+        fallbackToText: true
+    };
+
+    const enabledToggle = document.getElementById('sticker-enabled-toggle');
+    const frequencyInput = document.getElementById('sticker-frequency-input');
+    const frequencyValue = document.getElementById('sticker-frequency-value');
+    const fallbackToggle = document.getElementById('sticker-fallback-toggle');
+
+    if (enabledToggle) enabledToggle.checked = settings.enabled;
+    if (frequencyInput) frequencyInput.value = settings.frequency * 100;
+    if (frequencyValue) frequencyValue.textContent = `${Math.round(settings.frequency * 100)}%`;
+    if (fallbackToggle) fallbackToggle.checked = settings.fallbackToText;
+}
+
+async function saveStickerSettings() {
+    const enabled = document.getElementById('sticker-enabled-toggle').checked;
+    const frequency = parseInt(document.getElementById('sticker-frequency-input').value) / 100;
+    const fallbackToText = document.getElementById('sticker-fallback-toggle').checked;
+
+    const config = await ipcRenderer.invoke('get-config');
+    config.stickerSettings = {
+        enabled: enabled,
+        frequency: frequency,
+        fallbackToText: fallbackToText,
+        categories: ['funny', 'love', 'sad', 'excited', 'thumbs_up', 'thinking', 'wow', 'casual']
+    };
+
+    const result = await ipcRenderer.invoke('save-config', config);
+
+    if (result.success) {
+        showStickerStatus('Sticker settings saved successfully!', 'success');
+        addActivityLog('Sticker settings updated');
+    } else {
+        showStickerStatus('Error saving sticker settings', 'error');
+    }
+}
+
+function showStickerStatus(message, type) {
+    const statusEl = document.getElementById('sticker-status');
+    if (statusEl) {
+        statusEl.textContent = message;
+        statusEl.className = 'api-status ' + type;
+    }
+}
+
+// Media Management
+
+function initializeMediaTab() {
+    const uploadBtn = document.getElementById('upload-media-btn');
+    const closeModal = document.getElementById('close-media-modal');
+    const confirmUploadBtn = document.getElementById('confirm-upload-media-btn');
+    const fileInput = document.getElementById('media-file-input');
+
+    if (uploadBtn) {
+        uploadBtn.addEventListener('click', openUploadMediaModal);
+    }
+    if (closeModal) {
+        closeModal.addEventListener('click', closeUploadMediaModal);
+    }
+    if (confirmUploadBtn) {
+        confirmUploadBtn.addEventListener('click', uploadMedia);
+    }
+    if (fileInput) {
+        fileInput.addEventListener('change', previewMedia);
+    }
+
+    const modal = document.getElementById('upload-media-modal');
+    if (modal) {
+        modal.addEventListener('click', (e) => {
+            if (e.target.classList.contains('modal')) {
+                closeUploadMediaModal();
+            }
+        });
+    }
+
+    // Initialize media settings
+    const frequencyInput = document.getElementById('media-frequency-input');
+    const frequencyValue = document.getElementById('media-frequency-value');
+
+    if (frequencyInput && frequencyValue) {
+        frequencyInput.addEventListener('input', (e) => {
+            frequencyValue.textContent = `${e.target.value}%`;
+        });
+    }
+
+    const saveMediaSettingsBtn = document.getElementById('save-media-settings-btn');
+    if (saveMediaSettingsBtn) {
+        saveMediaSettingsBtn.addEventListener('click', saveMediaSettings);
+    }
+}
+
+function openUploadMediaModal() {
+    document.getElementById('upload-media-modal').classList.add('active');
+    document.getElementById('media-file-input').value = '';
+    document.getElementById('media-context-input').value = '';
+    document.getElementById('media-preview').innerHTML = '';
+    document.getElementById('upload-media-error').textContent = '';
+}
+
+function closeUploadMediaModal() {
+    document.getElementById('upload-media-modal').classList.remove('active');
+}
+
+function previewMedia(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+        document.getElementById('upload-media-error').textContent = 'Only image files are allowed';
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        const preview = document.getElementById('media-preview');
+        preview.innerHTML = `<img src="${e.target.result}" alt="Media Preview" style="max-width: 300px; max-height: 300px; border-radius: 8px;">`;
+    };
+    reader.readAsDataURL(file);
+}
+
+async function uploadMedia() {
+    const fileInput = document.getElementById('media-file-input');
+    const context = document.getElementById('media-context-input').value.trim();
+    const errorEl = document.getElementById('upload-media-error');
+
+    // Clear previous errors
+    errorEl.textContent = '';
+
+    // CRITICAL: Validate context
+    if (!context || context.length === 0) {
+        errorEl.textContent = 'Context/description is required!';
+        return;
+    }
+
+    if (context.length < 10) {
+        errorEl.textContent = 'Please provide more detail (minimum 10 characters)';
+        return;
+    }
+
+    if (!fileInput.files[0]) {
+        errorEl.textContent = 'Please select an image file';
+        return;
+    }
+
+    const file = fileInput.files[0];
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+        errorEl.textContent = 'Only image files (JPG, PNG) are allowed';
+        return;
+    }
+
+    // Validate file format
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png'];
+    if (!allowedTypes.includes(file.type)) {
+        errorEl.textContent = 'Only JPG and PNG formats are supported';
+        return;
+    }
+
+    // Validate file size (5MB max)
+    if (file.size > 5242880) {
+        errorEl.textContent = 'File size must be less than 5MB';
+        return;
+    }
+
+    // Read file as base64
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+        const base64Data = e.target.result.split(',')[1];
+
+        const result = await ipcRenderer.invoke('upload-media', {
+            fileName: file.name,
+            fileData: base64Data,
+            context: context,
+            mimeType: file.type
+        });
+
+        if (result.success) {
+            closeUploadMediaModal();
+            loadMediaItems();
+            addActivityLog(`Media uploaded: ${file.name}`);
+        } else {
+            errorEl.textContent = 'Error: ' + result.error;
+        }
+    };
+
+    reader.readAsDataURL(file);
+}
+
+async function loadMediaItems() {
+    const mediaItems = await ipcRenderer.invoke('get-media-items');
+    const container = document.getElementById('media-items-container');
+
+    if (mediaItems.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-icon">📸</div>
+                <h3>No media uploaded yet</h3>
+                <p>Click "Upload Media" to add images with context descriptions</p>
+            </div>
+        `;
+        return;
+    }
+
+    let html = '';
+    for (const item of mediaItems) {
+        const previewData = await getMediaPreview(item.id);
+        const uploadDate = new Date(item.uploadedAt).toLocaleDateString();
+        const fileSize = (item.fileSize / 1024).toFixed(1);
+
+        html += `
+            <div class="media-item-card">
+                <img src="data:${item.mimeType};base64,${previewData}"
+                     alt="${item.context}"
+                     class="media-item-image">
+                <div class="media-item-info">
+                    <p class="media-item-context">${escapeHtml(item.context)}</p>
+                    <div class="media-item-metadata">
+                        <span>📅 ${uploadDate}</span>
+                        <span>💾 ${fileSize} KB</span>
+                    </div>
+                </div>
+                <div class="media-item-actions">
+                    <button class="btn-icon btn-edit" onclick="editMediaContext('${item.id}')" title="Edit context">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                        </svg>
+                    </button>
+                    <button class="btn-icon btn-delete" onclick="deleteMedia('${item.id}')" title="Delete">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="3 6 5 6 21 6"></polyline>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        `;
+    }
+
+    container.innerHTML = html;
+}
+
+async function getMediaPreview(mediaId) {
+    const result = await ipcRenderer.invoke('get-media-file', { mediaId: mediaId });
+    return result.success ? result.data : '';
+}
+
+async function editMediaContext(mediaId) {
+    const mediaItems = await ipcRenderer.invoke('get-media-items');
+    const item = mediaItems.find(m => m.id === mediaId);
+
+    if (!item) {
+        alert('Media item not found');
+        return;
+    }
+
+    const newContext = prompt('Edit context/description (minimum 10 characters):', item.context);
+
+    if (newContext === null) {
+        return; // User cancelled
+    }
+
+    // Validate context
+    if (!newContext || newContext.trim().length === 0) {
+        alert('Context cannot be empty!');
+        return;
+    }
+
+    if (newContext.trim().length < 10) {
+        alert('Please provide more detail (minimum 10 characters)');
+        return;
+    }
+
+    const result = await ipcRenderer.invoke('update-media-context', {
+        mediaId: mediaId,
+        context: newContext.trim()
+    });
+
+    if (result.success) {
+        loadMediaItems();
+        addActivityLog('Media context updated');
+    } else {
+        alert('Error updating context: ' + result.error);
+    }
+}
+
+async function deleteMedia(mediaId) {
+    if (!confirm('Are you sure you want to delete this media item?')) {
+        return;
+    }
+
+    const result = await ipcRenderer.invoke('delete-media', { mediaId: mediaId });
+
+    if (result.success) {
+        loadMediaItems();
+        addActivityLog('Media deleted');
+    } else {
+        alert('Error deleting media: ' + result.error);
+    }
+}
+
+// Media Settings
+
+async function loadMediaSettings() {
+    const config = await ipcRenderer.invoke('get-config');
+    const settings = config.mediaSettings || {
+        enabled: true,
+        frequency: 0.10,
+        maxFileSize: 5242880,
+        allowedFormats: ['image/jpeg', 'image/png', 'image/jpg'],
+        requireContext: true
+    };
+
+    const enabledToggle = document.getElementById('media-enabled-toggle');
+    const frequencyInput = document.getElementById('media-frequency-input');
+    const frequencyValue = document.getElementById('media-frequency-value');
+
+    if (enabledToggle) enabledToggle.checked = settings.enabled;
+    if (frequencyInput) frequencyInput.value = settings.frequency * 100;
+    if (frequencyValue) frequencyValue.textContent = `${Math.round(settings.frequency * 100)}%`;
+}
+
+async function saveMediaSettings() {
+    const enabled = document.getElementById('media-enabled-toggle').checked;
+    const frequency = parseInt(document.getElementById('media-frequency-input').value) / 100;
+
+    const config = await ipcRenderer.invoke('get-config');
+    config.mediaSettings = {
+        enabled: enabled,
+        frequency: frequency,
+        maxFileSize: 5242880,
+        allowedFormats: ['image/jpeg', 'image/png', 'image/jpg'],
+        requireContext: true
+    };
+
+    const result = await ipcRenderer.invoke('save-config', config);
+
+    if (result.success) {
+        showMediaStatus('Media settings saved successfully!', 'success');
+        addActivityLog('Media settings updated');
+    } else {
+        showMediaStatus('Error saving media settings', 'error');
+    }
+}
+
+function showMediaStatus(message, type) {
+    const statusEl = document.getElementById('media-status');
+    if (statusEl) {
+        statusEl.textContent = message;
+        statusEl.className = 'api-status ' + type;
+    }
+}
+
+// Blasting Management
+
+let blastImageData = null;
+let isBlasting = false;
+
+function initializeBlastingTab() {
+    const imageInput = document.getElementById('blast-image-input');
+    const messageInput = document.getElementById('blast-message-input');
+    const previewBtn = document.getElementById('preview-blast-btn');
+    const resetBtn = document.getElementById('reset-blast-btn');
+    const startBlastBtn = document.getElementById('start-blast-btn');
+
+    if (imageInput) {
+        imageInput.addEventListener('change', handleBlastImageUpload);
+    }
+
+    if (messageInput) {
+        messageInput.addEventListener('input', updateCharCount);
+    }
+
+    if (previewBtn) {
+        previewBtn.addEventListener('click', previewBlast);
+    }
+
+    if (resetBtn) {
+        resetBtn.addEventListener('click', resetBlast);
+    }
+
+    if (startBlastBtn) {
+        startBlastBtn.addEventListener('click', startBlast);
+    }
+}
+
+function handleBlastImageUpload(event) {
+    const file = event.target.files[0];
+    if (!file) {
+        blastImageData = null;
+        document.getElementById('blast-image-preview').innerHTML = '';
+        document.getElementById('blast-file-name').textContent = 'Choose an image (JPG/PNG, max 5MB)';
+        return;
+    }
+
+    // Validate file type
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png'];
+    if (!allowedTypes.includes(file.type)) {
+        alert('Only JPG and PNG formats are supported');
+        event.target.value = '';
+        return;
+    }
+
+    // Validate file size (5MB max)
+    if (file.size > 5242880) {
+        alert('File size must be less than 5MB');
+        event.target.value = '';
+        return;
+    }
+
+    // Update file name display
+    document.getElementById('blast-file-name').textContent = file.name;
+
+    // Read and preview image
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        const base64Data = e.target.result.split(',')[1];
+        blastImageData = {
+            fileName: file.name,
+            mimeType: file.type,
+            base64Data: base64Data
+        };
+
+        // Show preview
+        const preview = document.getElementById('blast-image-preview');
+        preview.innerHTML = `<img src="${e.target.result}" alt="Preview" style="max-width: 100%; max-height: 200px; border-radius: 8px; margin-top: 12px;">`;
+    };
+    reader.readAsDataURL(file);
+}
+
+function updateCharCount() {
+    const messageInput = document.getElementById('blast-message-input');
+    const charCount = document.getElementById('blast-char-count');
+    charCount.textContent = messageInput.value.length;
+}
+
+function previewBlast() {
+    const message = document.getElementById('blast-message-input').value.trim();
+
+    if (!message) {
+        alert('Please enter a message');
+        return;
+    }
+
+    const previewSection = document.getElementById('blast-preview-section');
+    const previewMessage = document.getElementById('blast-preview-message');
+    const previewImage = document.getElementById('blast-preview-image');
+
+    // Show preview
+    previewSection.style.display = 'block';
+    previewMessage.textContent = message;
+
+    if (blastImageData) {
+        previewImage.innerHTML = `<img src="data:${blastImageData.mimeType};base64,${blastImageData.base64Data}" alt="Preview" style="max-width: 100%; max-height: 200px; border-radius: 8px; margin-bottom: 12px;">`;
+    } else {
+        previewImage.innerHTML = '';
+    }
+
+    // Scroll to preview
+    previewSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function resetBlast() {
+    // Clear message input
+    document.getElementById('blast-message-input').value = '';
+
+    // Clear image input
+    document.getElementById('blast-image-input').value = '';
+
+    // Clear image preview
+    document.getElementById('blast-image-preview').innerHTML = '';
+
+    // Reset file name label
+    document.getElementById('blast-file-name').textContent = 'Choose an image (JPG/PNG, max 5MB)';
+
+    // Hide preview section
+    document.getElementById('blast-preview-section').style.display = 'none';
+
+    // Reset character count
+    document.getElementById('blast-char-count').textContent = '0';
+
+    // Clear blast image data
+    blastImageData = null;
+
+    // Clear status message
+    const statusEl = document.getElementById('blast-status');
+    if (statusEl) {
+        statusEl.textContent = '';
+        statusEl.className = 'blast-status';
+    }
+}
+
+async function startBlast() {
+    if (isBlasting) {
+        alert('A blast is already in progress');
+        return;
+    }
+
+    const message = document.getElementById('blast-message-input').value.trim();
+
+    if (!message) {
+        alert('Please enter a message');
+        return;
+    }
+
+    // Confirm blast
+    const stats = await ipcRenderer.invoke('get-blast-stats');
+    if (!stats.success) {
+        showBlastStatus('Error: ' + stats.error, 'error');
+        return;
+    }
+
+    const confirmMsg = `Send this message to ${stats.totalRecipients} recipient(s)?\n\nEstimated time: ${Math.ceil(stats.estimatedTime / 60)} minute(s)\n\nThis action cannot be undone.`;
+    if (!confirm(confirmMsg)) {
+        return;
+    }
+
+    isBlasting = true;
+
+    // Disable button and show progress
+    const startBtn = document.getElementById('start-blast-btn');
+    startBtn.disabled = true;
+    startBtn.textContent = 'Blasting...';
+
+    // Show progress bar
+    document.getElementById('blast-progress-container').style.display = 'block';
+    document.getElementById('blast-sent-count').textContent = '0';
+    document.getElementById('blast-progress').textContent = '0%';
+    document.getElementById('blast-progress-bar').style.width = '0%';
+
+    showBlastStatus('Starting blast...', 'info');
+
+    try {
+        const result = await ipcRenderer.invoke('start-blast', {
+            message: message,
+            imageData: blastImageData
+        });
+
+        if (result.success) {
+            const results = result.results;
+            showBlastStatus(
+                `Blast completed! Sent: ${results.sent}, Failed: ${results.failed}`,
+                results.failed === 0 ? 'success' : 'warning'
+            );
+
+            // Add to activity log
+            addActivityLog(`Blast completed: ${results.sent} sent, ${results.failed} failed`);
+
+            // Clear form after successful blast
+            document.getElementById('blast-message-input').value = '';
+            document.getElementById('blast-image-input').value = '';
+            document.getElementById('blast-image-preview').innerHTML = '';
+            document.getElementById('blast-file-name').textContent = 'Choose an image (JPG/PNG, max 5MB)';
+            document.getElementById('blast-preview-section').style.display = 'none';
+            document.getElementById('blast-char-count').textContent = '0';
+            blastImageData = null;
+        } else {
+            showBlastStatus('Error: ' + result.error, 'error');
+        }
+    } catch (error) {
+        showBlastStatus('Error: ' + error.message, 'error');
+    } finally {
+        isBlasting = false;
+        startBtn.disabled = false;
+        startBtn.innerHTML = `
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path>
+                <path d="M21 3v5h-5"></path>
+                <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"></path>
+                <path d="M8 16H3v5"></path>
+            </svg>
+            Start Blast
+        `;
+
+        // Hide progress bar after a delay
+        setTimeout(() => {
+            document.getElementById('blast-progress-container').style.display = 'none';
+        }, 3000);
+    }
+}
+
+async function loadBlastStats() {
+    try {
+        const stats = await ipcRenderer.invoke('get-blast-stats');
+        if (stats.success) {
+            document.getElementById('blast-total-recipients').textContent = stats.totalRecipients;
+            document.getElementById('blast-est-time').textContent = `${Math.ceil(stats.estimatedTime / 60)}m`;
+        }
+    } catch (error) {
+        console.error('Error loading blast stats:', error);
+    }
+}
+
+function showBlastStatus(message, type) {
+    const statusEl = document.getElementById('blast-status');
+    if (statusEl) {
+        statusEl.textContent = message;
+        statusEl.className = 'blast-status ' + type;
+
+        // Auto-hide success messages after 5 seconds
+        if (type === 'success') {
+            setTimeout(() => {
+                statusEl.textContent = '';
+                statusEl.className = 'blast-status';
+            }, 5000);
+        }
+    }
+}
+
 // Make functions global
 window.switchTab = switchTab;
 window.removeAccount = removeAccount;
 window.removePhoneNumber = removePhoneNumber;
+window.deleteSticker = deleteSticker;
+window.editMediaContext = editMediaContext;
+window.deleteMedia = deleteMedia;

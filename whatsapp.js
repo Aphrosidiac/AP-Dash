@@ -1,7 +1,8 @@
-const { Client, LocalAuth } = require('whatsapp-web.js');
+const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const path = require('path');
+const fs = require('fs');
 
 class WhatsAppManager {
     constructor(sessionsDir, mainWindow) {
@@ -21,6 +22,12 @@ class WhatsAppManager {
         this.messagesByPhone = new Map(); // phoneNumber -> [messages]
         this.queuedMessages = new Map(); // phoneNumber -> { message: string, timestamp: number } - stores last message when disabled
         this.disabledNumbers = new Set(); // Track disabled numbers
+        this.stickerConfig = null; // Sticker configuration
+        this.stickersDir = null; // Path to stickers directory
+        this.stickerCache = new Map(); // Cache loaded stickers
+        this.mediaConfig = null; // Media configuration
+        this.mediaDir = null; // Path to media directory
+        this.mediaItems = []; // Cached media items
     }
 
     initializeAI(apiKey) {
@@ -82,6 +89,411 @@ Generate a natural response to their last message. Keep it short (1-2 sentences)
                 return fallbacks[Math.floor(Math.random() * fallbacks.length)];
             }
         }
+    }
+
+    /**
+     * Initialize sticker management
+     */
+    initializeStickerManager(config) {
+        this.stickerConfig = config.stickerSettings || {
+            enabled: false,
+            frequency: 0.12,
+            fallbackToText: true
+        };
+
+        this.stickersDir = path.join(__dirname, 'data', 'stickers');
+
+        // Ensure stickers directory exists
+        if (!fs.existsSync(this.stickersDir)) {
+            fs.mkdirSync(this.stickersDir, { recursive: true });
+            // Create category folders
+            const categories = ['funny', 'love', 'sad', 'excited',
+                               'thumbs_up', 'thinking', 'wow', 'casual'];
+            categories.forEach(cat => {
+                fs.mkdirSync(path.join(this.stickersDir, cat), { recursive: true });
+            });
+        }
+
+        console.log('Sticker manager initialized:', this.stickerConfig);
+    }
+
+    /**
+     * Get available stickers for a category
+     */
+    getStickersForCategory(category) {
+        const categoryPath = path.join(this.stickersDir, category);
+
+        if (!fs.existsSync(categoryPath)) {
+            return [];
+        }
+
+        try {
+            const files = fs.readdirSync(categoryPath);
+            return files.filter(f => f.endsWith('.webp'));
+        } catch (error) {
+            console.error(`Error reading stickers from ${category}:`, error);
+            return [];
+        }
+    }
+
+    /**
+     * Select random sticker from category
+     */
+    selectRandomSticker(category) {
+        const stickers = this.getStickersForCategory(category);
+
+        if (stickers.length === 0) {
+            return null;
+        }
+
+        const randomSticker = stickers[Math.floor(Math.random() * stickers.length)];
+        return path.join(this.stickersDir, category, randomSticker);
+    }
+
+    /**
+     * Detect emotion/category from conversation using AI
+     */
+    async detectConversationEmotion(conversationHistory) {
+        if (!this.genAI) {
+            return 'casual'; // Fallback
+        }
+
+        try {
+            const model = this.genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+
+            // Build conversation context (last 5 messages for efficiency)
+            const recentHistory = conversationHistory.slice(-5);
+            const context = recentHistory
+                .map(msg => `${msg.role === 'user' ? 'Them' : 'You'}: ${msg.text}`)
+                .join('\n');
+
+            const prompt = `Analyze the emotional tone of this WhatsApp conversation and respond with ONLY ONE of these categories: funny, love, sad, excited, thumbs_up, thinking, wow, casual
+
+Conversation:
+${context}
+
+Respond with just the single category word, nothing else.`;
+
+            const result = await model.generateContent(prompt);
+            const response = await result.response;
+            const emotion = response.text().trim().toLowerCase();
+
+            // Validate response
+            const validCategories = ['funny', 'love', 'sad', 'excited',
+                                    'thumbs_up', 'thinking', 'wow', 'casual'];
+
+            if (validCategories.includes(emotion)) {
+                console.log(`Detected emotion: ${emotion}`);
+                return emotion;
+            }
+
+            return 'casual'; // Default fallback
+
+        } catch (error) {
+            console.error('Error detecting emotion:', error);
+            return 'casual';
+        }
+    }
+
+    /**
+     * Send sticker to phone number
+     */
+    async sendSticker(phoneNumber, stickerPath) {
+        if (!this.client || !this.client.info) {
+            console.error('Client not ready');
+            return false;
+        }
+
+        try {
+            const chatId = `${phoneNumber}@c.us`;
+            const chat = await this.client.getChatById(chatId);
+
+            // Show typing indicator
+            await chat.sendStateTyping();
+
+            // Load sticker using MessageMedia
+            const media = MessageMedia.fromFilePath(stickerPath);
+
+            // Send as sticker
+            await this.client.sendMessage(chatId, media, {
+                sendMediaAsSticker: true
+            });
+
+            console.log(`Sent sticker to ${phoneNumber}: ${path.basename(stickerPath)}`);
+
+            // Log to UI
+            this.mainWindow.webContents.send('warming-log', {
+                message: `Sent sticker to ${phoneNumber}: ${path.basename(stickerPath)}`
+            });
+
+            return true;
+
+        } catch (error) {
+            console.error('Error sending sticker:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Initialize media management
+     */
+    initializeMediaManager(config) {
+        this.mediaConfig = config.mediaSettings || {
+            enabled: false,
+            frequency: 0.10,
+            maxFileSize: 5242880,
+            allowedFormats: ['image/jpeg', 'image/png', 'image/jpg'],
+            requireContext: true
+        };
+
+        this.mediaDir = path.join(__dirname, 'data', 'media');
+        const filesDir = path.join(this.mediaDir, 'files');
+        const indexFile = path.join(this.mediaDir, 'media-items.json');
+
+        // Ensure directories exist
+        if (!fs.existsSync(this.mediaDir)) {
+            fs.mkdirSync(this.mediaDir, { recursive: true });
+        }
+        if (!fs.existsSync(filesDir)) {
+            fs.mkdirSync(filesDir, { recursive: true });
+        }
+
+        // Initialize index file
+        if (!fs.existsSync(indexFile)) {
+            fs.writeFileSync(indexFile, JSON.stringify([], null, 2));
+        }
+
+        // Load media items into cache
+        this.loadMediaItems();
+
+        console.log('Media manager initialized:', this.mediaConfig);
+    }
+
+    /**
+     * Load media items from index file
+     */
+    loadMediaItems() {
+        try {
+            const indexFile = path.join(this.mediaDir, 'media-items.json');
+            const data = fs.readFileSync(indexFile, 'utf-8');
+            this.mediaItems = JSON.parse(data);
+            console.log(`Loaded ${this.mediaItems.length} media items`);
+        } catch (error) {
+            console.error('Error loading media items:', error);
+            this.mediaItems = [];
+        }
+    }
+
+    /**
+     * Select random media item
+     */
+    selectRandomMediaItem() {
+        if (this.mediaItems.length === 0) {
+            return null;
+        }
+        const randomIndex = Math.floor(Math.random() * this.mediaItems.length);
+        return this.mediaItems[randomIndex];
+    }
+
+    /**
+     * Generate AI message about media using context
+     */
+    async generateMediaMessage(conversationHistory, mediaContext) {
+        if (!this.genAI) {
+            // Fallback messages
+            const fallbacks = [
+                `Check this out! ${mediaContext}`,
+                `Look at this - ${mediaContext}`,
+                `Thought you'd like this. ${mediaContext}`
+            ];
+            return fallbacks[Math.floor(Math.random() * fallbacks.length)];
+        }
+
+        try {
+            const model = this.genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+
+            // Get custom personality or use default
+            const personality = this.warmingConfig?.aiPersonality ||
+                `You are a casual, friendly person chatting on WhatsApp.`;
+
+            // Build conversation context if available
+            let conversationContext = '';
+            if (conversationHistory && conversationHistory.length > 0) {
+                const recentHistory = conversationHistory.slice(-5);
+                conversationContext = recentHistory
+                    .map(msg => `${msg.role === 'user' ? 'Them' : 'You'}: ${msg.text}`)
+                    .join('\n');
+            }
+
+            const prompt = `${personality}
+
+${conversationContext ? `Recent conversation:\n${conversationContext}\n\n` : ''}You want to share an image with them. The image shows: ${mediaContext}
+
+Generate a natural, casual message (1-2 sentences) to accompany this image. Make it conversational and relevant to your ongoing chat${conversationContext ? '' : ', as if you\'re sharing something interesting with a friend'}. Just respond with the message text, nothing else.`;
+
+            const result = await model.generateContent(prompt);
+            const response = await result.response;
+            const text = response.text().trim();
+
+            // Remove quotes if AI wrapped the response
+            return text.replace(/^["']|["']$/g, '');
+
+        } catch (error) {
+            console.error('Error generating media message:', error);
+            // Fallback
+            return `Check this out! ${mediaContext}`;
+        }
+    }
+
+    /**
+     * Send media with AI-generated message about it
+     */
+    async sendMediaWithMessage(phoneNumber, mediaItem) {
+        if (!this.client || !this.client.info) {
+            console.error('Client not ready');
+            return false;
+        }
+
+        try {
+            const chatId = `${phoneNumber}@c.us`;
+            const chat = await this.client.getChatById(chatId);
+
+            // Show typing indicator
+            await chat.sendStateTyping();
+
+            // Generate AI message about the image using context
+            const conversation = this.activeConversations.get(phoneNumber);
+            const aiMessage = await this.generateMediaMessage(conversation?.history || [], mediaItem.context);
+
+            // Load media using MessageMedia
+            const media = MessageMedia.fromFilePath(mediaItem.filePath);
+
+            // Send media with caption (AI message)
+            await this.client.sendMessage(chatId, media, {
+                caption: aiMessage
+            });
+
+            console.log(`Sent media to ${phoneNumber}: ${mediaItem.fileName} with message: "${aiMessage}"`);
+
+            // Log to UI
+            this.mainWindow.webContents.send('warming-log', {
+                message: `Sent image to ${phoneNumber}: "${mediaItem.context.substring(0, 50)}..."`
+            });
+
+            return true;
+
+        } catch (error) {
+            console.error('Error sending media:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Blast message to all phone numbers with 3-second interval
+     * @param {string} message - Text message to send
+     * @param {object} imageData - Optional image data {fileName, mimeType, base64Data}
+     * @param {function} progressCallback - Callback function for progress updates
+     */
+    async blastMessage(message, imageData = null, progressCallback = null) {
+        if (!this.client || !this.client.info) {
+            throw new Error('WhatsApp client not ready');
+        }
+
+        if (!message || message.trim().length === 0) {
+            throw new Error('Message text is required');
+        }
+
+        const phoneNumbers = await this.getPhoneNumbers();
+        const enabledNumbers = phoneNumbers.filter(p => p.enabled !== false);
+
+        if (enabledNumbers.length === 0) {
+            throw new Error('No enabled phone numbers found');
+        }
+
+        const results = {
+            total: enabledNumbers.length,
+            sent: 0,
+            failed: 0,
+            errors: []
+        };
+
+        console.log(`Starting blast to ${enabledNumbers.length} recipients...`);
+
+        for (let i = 0; i < enabledNumbers.length; i++) {
+            const phone = enabledNumbers[i];
+            const phoneNumber = phone.number;
+
+            try {
+                const chatId = `${phoneNumber}@c.us`;
+                const chat = await this.client.getChatById(chatId);
+
+                // Show typing indicator
+                await chat.sendStateTyping();
+
+                if (imageData && imageData.base64Data) {
+                    // Send image with message as caption
+                    const media = new MessageMedia(
+                        imageData.mimeType,
+                        imageData.base64Data,
+                        imageData.fileName
+                    );
+
+                    await this.client.sendMessage(chatId, media, {
+                        caption: message
+                    });
+                } else {
+                    // Send text only
+                    await this.client.sendMessage(chatId, message);
+                }
+
+                results.sent++;
+                console.log(`Blast sent to ${phoneNumber} (${results.sent}/${results.total})`);
+
+                // Call progress callback
+                if (progressCallback) {
+                    progressCallback({
+                        current: i + 1,
+                        total: results.total,
+                        sent: results.sent,
+                        failed: results.failed,
+                        phoneNumber: phoneNumber
+                    });
+                }
+
+                // Wait 3 seconds before sending to next number (except for the last one)
+                if (i < enabledNumbers.length - 1) {
+                    await new Promise(resolve => setTimeout(resolve, 3000));
+                }
+
+            } catch (error) {
+                results.failed++;
+                results.errors.push({
+                    phoneNumber: phoneNumber,
+                    error: error.message
+                });
+                console.error(`Failed to send blast to ${phoneNumber}:`, error);
+
+                // Call progress callback even on error
+                if (progressCallback) {
+                    progressCallback({
+                        current: i + 1,
+                        total: results.total,
+                        sent: results.sent,
+                        failed: results.failed,
+                        phoneNumber: phoneNumber,
+                        error: error.message
+                    });
+                }
+
+                // Continue to next number even if this one failed
+                if (i < enabledNumbers.length - 1) {
+                    await new Promise(resolve => setTimeout(resolve, 3000));
+                }
+            }
+        }
+
+        console.log(`Blast completed: ${results.sent} sent, ${results.failed} failed`);
+        return results;
     }
 
     async addAccount(accountId, accountName) {
@@ -564,7 +976,93 @@ Generate a natural response to their last message. Keep it short (1-2 sentences)
             await chat.sendStateTyping();
             console.log(`Showing typing indicator to ${phoneNumber}`);
 
-            // Generate AI response based on conversation history
+            // NEW: Determine if we should send media (10% chance)
+            const shouldSendMedia = this.mediaConfig?.enabled &&
+                                   this.mediaItems.length > 0 &&
+                                   Math.random() < (this.mediaConfig?.frequency || 0.10);
+
+            if (shouldSendMedia) {
+                console.log('Attempting to send media (10% chance)...');
+                const mediaItem = this.selectRandomMediaItem();
+
+                if (mediaItem && fs.existsSync(mediaItem.filePath)) {
+                    console.log(`Attempting to send media: ${mediaItem.fileName}`);
+                    const mediaSent = await this.sendMediaWithMessage(phoneNumber, mediaItem);
+
+                    if (mediaSent) {
+                        // Add to conversation history
+                        conversation.history.push({
+                            role: 'assistant',
+                            text: `[Sent image: ${mediaItem.context}]`,
+                            timestamp: Date.now(),
+                            isMedia: true,
+                            mediaContext: mediaItem.context
+                        });
+                        conversation.lastMessageTime = Date.now();
+
+                        // Update stats
+                        this.mainWindow.webContents.send('warming-message-sent', {
+                            to: phoneNumber,
+                            message: `[Image: ${mediaItem.context.substring(0, 50)}...]`,
+                            timestamp: Date.now()
+                        });
+
+                        this.mainWindow.webContents.send('increment-stats');
+                        return; // Exit - media sent successfully
+                    }
+                }
+
+                console.log('Media send failed or unavailable, continuing to sticker/text');
+            }
+
+            // NEW: Determine if we should send a sticker
+            const shouldSendSticker = this.stickerConfig?.enabled &&
+                                      Math.random() < (this.stickerConfig?.frequency || 0.12);
+
+            if (shouldSendSticker) {
+                console.log('Attempting to send sticker...');
+                // Detect emotion from conversation
+                const emotion = await this.detectConversationEmotion(conversation.history);
+
+                // Try to select and send sticker
+                const stickerPath = this.selectRandomSticker(emotion);
+
+                if (stickerPath && fs.existsSync(stickerPath)) {
+                    console.log(`Attempting to send sticker (emotion: ${emotion})`);
+                    const stickerSent = await this.sendSticker(phoneNumber, stickerPath);
+
+                    if (stickerSent) {
+                        // Add to conversation history
+                        conversation.history.push({
+                            role: 'assistant',
+                            text: `[Sent sticker: ${emotion}]`,
+                            timestamp: Date.now(),
+                            isSticker: true
+                        });
+                        conversation.lastMessageTime = Date.now();
+
+                        // Update stats
+                        this.mainWindow.webContents.send('warming-message-sent', {
+                            to: phoneNumber,
+                            message: `[Sticker: ${emotion}]`,
+                            timestamp: Date.now()
+                        });
+
+                        this.mainWindow.webContents.send('increment-stats');
+                        return; // Exit - sticker sent successfully
+                    }
+                }
+
+                // Fallback: If sticker failed and fallback disabled, exit
+                if (!this.stickerConfig?.fallbackToText) {
+                    console.log('Sticker send failed, fallback disabled');
+                    return;
+                }
+
+                console.log('Sticker unavailable, falling back to text');
+            }
+
+            // EXISTING: Generate and send text response
             const aiResponse = await this.generateAIResponse(conversation.history, false);
 
             // Send the message (this automatically clears typing state)
@@ -633,6 +1131,12 @@ Generate a natural response to their last message. Keep it short (1-2 sentences)
         if (!this.initializeAI(config.apiKey)) {
             throw new Error('Failed to initialize AI');
         }
+
+        // Initialize sticker manager
+        this.initializeStickerManager(config);
+
+        // Initialize media manager
+        this.initializeMediaManager(config);
 
         this.warmingConfig = config;
         this.warmingActive = true;
