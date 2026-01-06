@@ -355,7 +355,9 @@ ipcMain.handle('start-warming', async (event, config) => {
             aiPersonality: savedConfig.aiPersonality || `You are a casual, friendly person chatting on WhatsApp. You're warm, engaging, and conversational. Keep your messages short (1-2 sentences), natural, and use common texting language. You're helpful and ask questions to keep the conversation flowing.`,
             phoneNumbers: phoneNumbers.map(p => p.number),
             delayMin: savedConfig.delayMin || 3,
-            delayMax: savedConfig.delayMax || 8
+            delayMax: savedConfig.delayMax || 8,
+            stickerSettings: savedConfig.stickerSettings,
+            mediaSettings: savedConfig.mediaSettings
         };
 
         await whatsappManager.startWarming(warmingConfig);

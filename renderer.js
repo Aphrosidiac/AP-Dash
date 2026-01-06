@@ -325,8 +325,18 @@ async function openAddAccountModal() {
 }
 
 function closeAddAccountModal() {
-    document.getElementById('add-account-modal').classList.remove('active');
+    const modal = document.getElementById('add-account-modal');
+    const input = document.getElementById('account-name');
+
+    modal.classList.remove('active');
     currentAccountId = null;
+
+    // Reset form to initial state
+    document.getElementById('account-form').style.display = 'block';
+    document.getElementById('qr-code-section').style.display = 'none';
+    input.value = '';
+    input.disabled = false;
+    input.readOnly = false;
 }
 
 async function generateQrCode() {
@@ -519,7 +529,19 @@ function openAddPhoneModal() {
 }
 
 function closeAddPhoneModal() {
-    document.getElementById('add-phone-modal').classList.remove('active');
+    const modal = document.getElementById('add-phone-modal');
+    const phoneInput = document.getElementById('phone-number-input');
+    const nameInput = document.getElementById('phone-name-input');
+
+    modal.classList.remove('active');
+
+    // Reset form to initial state
+    phoneInput.value = '';
+    nameInput.value = '';
+    phoneInput.disabled = false;
+    phoneInput.readOnly = false;
+    nameInput.disabled = false;
+    nameInput.readOnly = false;
 }
 
 async function savePhoneNumber() {
