@@ -49,14 +49,51 @@ class WhatsAppManager {
         try {
             const model = this.genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
 
-            // Get custom personality or use default
-            const personality = this.warmingConfig?.aiPersonality || `You are a casual, friendly person chatting on WhatsApp. You're warm, engaging, and conversational. Keep your messages short (1-2 sentences), natural, and use common texting language. You're helpful and ask questions to keep the conversation flowing.`;
+            const personality = this.warmingConfig.aiPersonality;
 
             let prompt;
             if (isGreeting) {
+                // Add randomization to ensure varied greetings
+                const greetingStyles = [
+                    'a friendly check-in',
+                    'asking how their day is going',
+                    'mentioning you wanted to connect',
+                    'a warm conversation starter',
+                    'asking about their week',
+                    'a polite reach-out',
+                    'showing genuine interest in catching up',
+                    'a professional but warm hello',
+                    'reaching out after some time',
+                    'a simple friendly opener'
+                ];
+                const randomStyle = greetingStyles[Math.floor(Math.random() * greetingStyles.length)];
+                const randomSeed = Math.floor(Math.random() * 10000);
+
                 prompt = `${personality}
 
-Generate a friendly greeting message to start a conversation on WhatsApp. Keep it natural and short (1-2 sentences). Just respond with the greeting message, nothing else.`;
+Generate a unique opening message to start a WhatsApp conversation. This should feel like ${randomStyle}.
+
+CRITICAL REQUIREMENTS:
+- Must be DIFFERENT from generic greetings like "Hey, how are you?" or "Hi there!"
+- Sound friendly and approachable, but not overly casual or unprofessional
+- Keep it short (1-2 sentences max)
+- Be warm and natural - like texting a colleague or acquaintance you're friendly with
+- No slang, abbreviations like "u" or "lol", or overly informal language
+- Variation seed: ${randomSeed}
+
+Examples of good variety (DO NOT copy these, create something new):
+- "Hope your week's going well!"
+- "Been meaning to reach out, how are things?"
+- "How's everything on your end?"
+- "Just wanted to check in and say hi"
+- "It's been a while! How have you been?"
+- "Hope I'm not catching you at a busy time"
+- "Wanted to say hello, how's life treating you?"
+- "Quick hello - hope all is well!"
+
+IMPORTANT: Do NOT start with "Hey!" - vary your opening. Start differently each time.
+
+Just respond with the message, nothing else.`;
             } else {
                 // Build conversation context
                 const context = conversationHistory
@@ -82,7 +119,18 @@ Generate a natural response to their last message. Keep it short (1-2 sentences)
             console.error('Error generating AI response:', error);
             // Fallback responses
             if (isGreeting) {
-                const greetings = ['Hey! How are you?', 'Hi there! What\'s up?', 'Hello! How\'s it going?'];
+                const greetings = [
+                    'Hope you\'re doing well!',
+                    'How\'s your week going?',
+                    'Been meaning to reach out!',
+                    'Hope all is well on your end',
+                    'How have you been?',
+                    'Hope you\'re having a good day!',
+                    'Just wanted to check in',
+                    'It\'s been a while! How are things?',
+                    'Quick hello - hope everything\'s good!',
+                    'Wanted to say hi, how\'s life?'
+                ];
                 return greetings[Math.floor(Math.random() * greetings.length)];
             } else {
                 const fallbacks = ['That\'s interesting!', 'Tell me more!', 'I see!', 'That\'s cool!'];
@@ -311,9 +359,7 @@ Respond with just the single category word, nothing else.`;
         try {
             const model = this.genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
 
-            // Get custom personality or use default
-            const personality = this.warmingConfig?.aiPersonality ||
-                `You are a casual, friendly person chatting on WhatsApp.`;
+            const personality = this.warmingConfig.aiPersonality;
 
             // Build conversation context if available
             let conversationContext = '';
@@ -583,6 +629,16 @@ Generate a natural, casual message (1-2 sentences) to accompany this image. Make
             // Disconnected event
             client.on('disconnected', (reason) => {
                 console.log(`Client ${accountName} disconnected:`, reason);
+
+                // Stop warming if active
+                if (this.warmingActive) {
+                    this.warmingActive = false;
+                    this.mainWindow.webContents.send('warming-stopped', {
+                        reason: 'disconnected',
+                        message: `WhatsApp disconnected: ${reason}`
+                    });
+                }
+
                 this.mainWindow.webContents.send('account-status-changed', {
                     accountId,
                     status: 'disconnected',
@@ -758,6 +814,194 @@ Generate a natural, casual message (1-2 sentences) to accompany this image. Make
             } catch (error) {
                 console.error('Error removing account:', error);
             }
+        }
+    }
+
+    async restoreSession(accountId, accountName) {
+        // Skip if client already exists
+        if (this.client) {
+            console.log('Session already active, skipping restore');
+            return true;
+        }
+
+        console.log(`Restoring session for ${accountName} (${accountId})...`);
+
+        try {
+            const client = new Client({
+                authStrategy: new LocalAuth({
+                    clientId: accountId,
+                    dataPath: this.sessionsDir
+                }),
+                puppeteer: {
+                    headless: true,
+                    args: [
+                        '--no-sandbox',
+                        '--disable-setuid-sandbox',
+                        '--disable-dev-shm-usage',
+                        '--disable-accelerated-2d-canvas',
+                        '--no-first-run',
+                        '--no-zygote',
+                        '--disable-gpu'
+                    ]
+                }
+            });
+
+            // QR Code event - only fires if session is invalid/expired
+            client.on('qr', async (qr) => {
+                console.log(`Session expired for ${accountName}, QR Code required`);
+                try {
+                    const qrDataUrl = await qrcode.toDataURL(qr);
+                    if (this.mainWindow && this.mainWindow.webContents) {
+                        this.mainWindow.webContents.send('qr-code', {
+                            accountId,
+                            qrCode: qrDataUrl
+                        });
+                    }
+                } catch (error) {
+                    console.error('Error generating QR code:', error);
+                }
+            });
+
+            // Ready event
+            client.on('ready', async () => {
+                console.log(`Session restored for ${accountName}!`);
+
+                const clientInfo = client.info;
+                this.mainWindow.webContents.send('account-ready', {
+                    accountId,
+                    phoneNumber: clientInfo.wid.user,
+                    pushname: clientInfo.pushname
+                });
+
+                this.mainWindow.webContents.send('account-status-changed', {
+                    accountId,
+                    status: 'ready'
+                });
+            });
+
+            // Authentication event
+            client.on('authenticated', () => {
+                console.log(`Session ${accountName} authenticated`);
+                this.mainWindow.webContents.send('account-status-changed', {
+                    accountId,
+                    status: 'authenticated'
+                });
+            });
+
+            // Authentication failure
+            client.on('auth_failure', (msg) => {
+                console.error(`Authentication failure for ${accountName}:`, msg);
+                this.mainWindow.webContents.send('account-status-changed', {
+                    accountId,
+                    status: 'auth_failure',
+                    error: msg
+                });
+            });
+
+            // Disconnected event
+            client.on('disconnected', (reason) => {
+                console.log(`Session ${accountName} disconnected:`, reason);
+
+                // Stop warming if active
+                if (this.warmingActive) {
+                    this.warmingActive = false;
+                    this.mainWindow.webContents.send('warming-stopped', {
+                        reason: 'disconnected',
+                        message: `WhatsApp disconnected: ${reason}`
+                    });
+                }
+
+                this.mainWindow.webContents.send('account-status-changed', {
+                    accountId,
+                    status: 'disconnected',
+                    reason
+                });
+            });
+
+            // Message received event - same as addAccount
+            client.on('message', async (message) => {
+                const messageId = `${message.from}_${message.timestamp}_${message.body.substring(0, 20)}`;
+
+                if (this.processedMessageIds.has(messageId)) {
+                    return;
+                }
+                this.processedMessageIds.add(messageId);
+
+                if (this.processedMessageIds.size > 1000) {
+                    const idsArray = Array.from(this.processedMessageIds);
+                    this.processedMessageIds = new Set(idsArray.slice(-500));
+                }
+
+                const phoneNumber = message.fromMe
+                    ? message.to.replace('@c.us', '')
+                    : message.from.replace('@c.us', '');
+
+                const hasMedia = message.hasMedia;
+                const messageType = message.type;
+                let mediaContext = null;
+
+                if (hasMedia && !message.fromMe) {
+                    console.log(`Message has media: ${messageType}`);
+                    mediaContext = await this.handleMediaMessage(message);
+                }
+
+                this.addMessageToPhone(phoneNumber, {
+                    id: messageId,
+                    accountId: this.accountId,
+                    accountName: this.accountName,
+                    phoneNumber,
+                    from: message.from,
+                    to: message.to,
+                    body: message.body,
+                    timestamp: message.timestamp,
+                    isOwn: message.fromMe,
+                    hasMedia: hasMedia,
+                    mediaType: messageType,
+                    mediaContext: mediaContext
+                });
+
+                if (this.warmingActive && !message.fromMe) {
+                    const fromNumber = message.from.replace('@c.us', '');
+
+                    if (this.warmingConfig && this.warmingConfig.phoneNumbers.includes(fromNumber)) {
+                        let messageText = message.body || '';
+                        if (mediaContext) {
+                            messageText = messageText
+                                ? `${messageText} [They also sent: ${mediaContext}]`
+                                : `[They sent: ${mediaContext}]`;
+                        }
+
+                        await this.handleIncomingMessage(fromNumber, messageText);
+                    }
+                }
+
+                this.mainWindow.webContents.send('message-received', {
+                    accountId: this.accountId,
+                    message: {
+                        id: messageId,
+                        from: message.from,
+                        to: message.to,
+                        body: message.body,
+                        timestamp: message.timestamp,
+                        fromMe: message.fromMe,
+                        hasMedia: hasMedia,
+                        mediaType: messageType,
+                        mediaContext: mediaContext
+                    }
+                });
+            });
+
+            // Initialize client - will auto-restore session if valid
+            await client.initialize();
+
+            this.client = client;
+            this.accountId = accountId;
+            this.accountName = accountName;
+
+            return true;
+        } catch (error) {
+            console.error(`Error restoring session for ${accountName}:`, error);
+            throw error;
         }
     }
 
@@ -1174,7 +1418,16 @@ Generate a natural, casual message (1-2 sentences) to accompany this image. Make
     }
 
     async sendInitialGreeting(phoneNumber) {
-        if (!this.warmingActive || !this.client || !this.client.info) return;
+        if (!this.warmingActive) return;
+
+        if (!this.client || !this.client.info) {
+            console.error('Cannot send greeting - client disconnected');
+            this.mainWindow.webContents.send('warming-error', {
+                error: 'WhatsApp disconnected - cannot send greeting',
+                phoneNumber
+            });
+            return;
+        }
 
         try {
             // Generate AI greeting

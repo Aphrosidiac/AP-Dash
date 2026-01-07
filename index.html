@@ -382,7 +382,7 @@
                             <h3>Gemini AI API Key</h3>
                             <p class="settings-description">
                                 Enter your Google Gemini AI API key to enable AI-powered conversations.
-                                Get your API key from <a href="https://makersuite.google.com/app/apikey" target="_blank">Google AI Studio</a>.
+                                Get your API key from <a href="https://console.cloud.google.com/apis/credentials" target="_blank">Google Cloud Console</a>.
                             </p>
 
                             <div class="form-group">
@@ -895,6 +895,24 @@
                 <div id="upload-media-error" style="color: #ef4444; font-size: 14px; margin-top: 10px; padding: 10px; background: #fee2e2; border-radius: 6px; display: none;"></div>
 
                 <button class="btn btn-primary btn-block" id="confirm-upload-media-btn">Upload Media</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom Dialog Modal -->
+    <div class="modal" id="custom-dialog-modal">
+        <div class="modal-content dialog-content">
+            <div class="modal-header">
+                <h2 id="dialog-title">Alert</h2>
+                <button class="modal-close" id="close-dialog-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p id="dialog-message"></p>
+                <input type="text" id="dialog-input" class="form-input" style="display: none; margin-top: 16px;">
+            </div>
+            <div class="modal-footer dialog-buttons">
+                <button class="btn btn-secondary" id="dialog-cancel-btn" style="display: none;">Cancel</button>
+                <button class="btn btn-primary" id="dialog-confirm-btn">OK</button>
             </div>
         </div>
     </div>

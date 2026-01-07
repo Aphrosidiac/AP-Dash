@@ -46,7 +46,42 @@ if (!fs.existsSync(MEDIA_INDEX_FILE)) {
 if (!fs.existsSync(CONFIG_FILE)) {
     const defaultConfig = {
         apiKey: '',
-        aiPersonality: `You are a casual, friendly person chatting on WhatsApp. You're warm, engaging, and conversational. Keep your messages short (1-2 sentences), natural, and use common texting language. You're helpful and ask questions to keep the conversation flowing.`,
+        aiPersonality: `You are a real human casually chatting on WhatsApp.
+Your goal is to build trust and familiarity over time — not to sell, pitch, or push anything.
+
+TONE & STYLE
+- Sound natural, relaxed, and human — never robotic or scripted
+- Use casual WhatsApp-style language with contractions and simple wording
+- Messages should feel spontaneous and slightly imperfect, not polished
+- Vary reply length naturally (sometimes 1 sentence, sometimes 2–3)
+
+CONVERSATION BEHAVIOR
+- Match the other person's tone, energy, and response length
+- Ask light, genuine questions only when it feels natural
+- Reply like a real person who is multitasking (not instant, not overeager)
+- Avoid repeating the same phrases or sentence structures
+
+HUMAN REALISM RULES
+- Do not overuse emojis (0–1 max, only when it fits naturally)
+- Do not sound overly enthusiastic, salesy, or fake-positive
+- Do not give assistant-style or generic responses
+- If unsure, respond casually or ask for clarification like a real person
+
+TRUST & WARM-UP FOCUS
+- Prioritize friendliness, familiarity, and normal conversation
+- Keep topics safe and neutral (daily life, work, light interests)
+- Never mention AI, automation, systems, software, or business intent
+
+MESSAGE CONSTRAINTS
+- Default to short WhatsApp-style messages (1–2 sentences)
+- Avoid paragraphs, bullet points, or formal language
+- Use simple acknowledgements, light humor, or casual replies when appropriate
+
+You are not trying to impress.
+You are trying to feel familiar and human.
+
+Optional:
+- Occasionally respond with a brief acknowledgment instead of a full reply (e.g., "haha yeah", "true", "makes sense") if it fits the conversation.`,
         delayMin: 3,
         delayMax: 8,
         stickerSettings: {
@@ -89,9 +124,24 @@ function createWindow() {
     });
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
     createWindow();
     whatsappManager = new WhatsAppManager(SESSIONS_DIR, mainWindow);
+
+    // Restore existing sessions on startup
+    try {
+        const accounts = JSON.parse(fs.readFileSync(ACCOUNTS_FILE, 'utf-8'));
+        for (const account of accounts) {
+            try {
+                console.log(`Attempting to restore session: ${account.name}`);
+                await whatsappManager.restoreSession(account.id, account.name);
+            } catch (error) {
+                console.error(`Failed to restore session for ${account.name}:`, error);
+            }
+        }
+    } catch (error) {
+        console.error('Error reading accounts for session restore:', error);
+    }
 
     app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) {
@@ -349,10 +399,14 @@ ipcMain.handle('start-warming', async (event, config) => {
             return { success: false, error: 'Please configure your Gemini API key first' };
         }
 
+        if (!savedConfig.aiPersonality || !savedConfig.aiPersonality.trim()) {
+            return { success: false, error: 'Please configure an AI personality before starting the warmer' };
+        }
+
         // Prepare warming config
         const warmingConfig = {
             apiKey: savedConfig.apiKey,
-            aiPersonality: savedConfig.aiPersonality || `You are a casual, friendly person chatting on WhatsApp. You're warm, engaging, and conversational. Keep your messages short (1-2 sentences), natural, and use common texting language. You're helpful and ask questions to keep the conversation flowing.`,
+            aiPersonality: savedConfig.aiPersonality,
             phoneNumbers: phoneNumbers.map(p => p.number),
             delayMin: savedConfig.delayMin || 3,
             delayMax: savedConfig.delayMax || 8,

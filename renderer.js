@@ -5,6 +5,97 @@ let currentAccountId = null;
 let warmingMessageCount = 0;
 let activeConversations = [];
 
+// Custom dialog functions to replace native alert/confirm/prompt
+function showAlert(message, title = 'Alert') {
+    return new Promise((resolve) => {
+        const modal = document.getElementById('custom-dialog-modal');
+        document.getElementById('dialog-title').textContent = title;
+        document.getElementById('dialog-message').textContent = message;
+        document.getElementById('dialog-input').style.display = 'none';
+        document.getElementById('dialog-cancel-btn').style.display = 'none';
+        document.getElementById('dialog-confirm-btn').textContent = 'OK';
+
+        const confirmBtn = document.getElementById('dialog-confirm-btn');
+        const closeBtn = document.getElementById('close-dialog-modal');
+
+        const cleanup = () => {
+            modal.classList.remove('active');
+            confirmBtn.onclick = null;
+            closeBtn.onclick = null;
+        };
+
+        confirmBtn.onclick = () => { cleanup(); resolve(); };
+        closeBtn.onclick = () => { cleanup(); resolve(); };
+
+        modal.classList.add('active');
+        confirmBtn.focus();
+    });
+}
+
+function showConfirm(message, title = 'Confirm') {
+    return new Promise((resolve) => {
+        const modal = document.getElementById('custom-dialog-modal');
+        document.getElementById('dialog-title').textContent = title;
+        document.getElementById('dialog-message').textContent = message;
+        document.getElementById('dialog-input').style.display = 'none';
+        document.getElementById('dialog-cancel-btn').style.display = 'inline-block';
+        document.getElementById('dialog-confirm-btn').textContent = 'OK';
+
+        const confirmBtn = document.getElementById('dialog-confirm-btn');
+        const cancelBtn = document.getElementById('dialog-cancel-btn');
+        const closeBtn = document.getElementById('close-dialog-modal');
+
+        const cleanup = () => {
+            modal.classList.remove('active');
+            confirmBtn.onclick = null;
+            cancelBtn.onclick = null;
+            closeBtn.onclick = null;
+        };
+
+        confirmBtn.onclick = () => { cleanup(); resolve(true); };
+        cancelBtn.onclick = () => { cleanup(); resolve(false); };
+        closeBtn.onclick = () => { cleanup(); resolve(false); };
+
+        modal.classList.add('active');
+        confirmBtn.focus();
+    });
+}
+
+function showPrompt(message, defaultValue = '', title = 'Input') {
+    return new Promise((resolve) => {
+        const modal = document.getElementById('custom-dialog-modal');
+        const input = document.getElementById('dialog-input');
+
+        document.getElementById('dialog-title').textContent = title;
+        document.getElementById('dialog-message').textContent = message;
+        input.style.display = 'block';
+        input.value = defaultValue;
+        document.getElementById('dialog-cancel-btn').style.display = 'inline-block';
+        document.getElementById('dialog-confirm-btn').textContent = 'OK';
+
+        const confirmBtn = document.getElementById('dialog-confirm-btn');
+        const cancelBtn = document.getElementById('dialog-cancel-btn');
+        const closeBtn = document.getElementById('close-dialog-modal');
+
+        const cleanup = () => {
+            modal.classList.remove('active');
+            confirmBtn.onclick = null;
+            cancelBtn.onclick = null;
+            closeBtn.onclick = null;
+            input.onkeydown = null;
+        };
+
+        confirmBtn.onclick = () => { cleanup(); resolve(input.value); };
+        cancelBtn.onclick = () => { cleanup(); resolve(null); };
+        closeBtn.onclick = () => { cleanup(); resolve(null); };
+        input.onkeydown = (e) => { if (e.key === 'Enter') { cleanup(); resolve(input.value); } };
+
+        modal.classList.add('active');
+        input.focus();
+        input.select();
+    });
+}
+
 // Initialize on load
 document.addEventListener('DOMContentLoaded', () => {
     initializeTabs();
@@ -200,7 +291,42 @@ async function saveAIPersonality() {
 }
 
 async function resetAIPersonality() {
-    const defaultPersonality = `You are a casual, friendly person chatting on WhatsApp. You're warm, engaging, and conversational. Keep your messages short (1-2 sentences), natural, and use common texting language. You're helpful and ask questions to keep the conversation flowing.`;
+    const defaultPersonality = `You are a real human casually chatting on WhatsApp.
+Your goal is to build trust and familiarity over time — not to sell, pitch, or push anything.
+
+TONE & STYLE
+- Sound natural, relaxed, and human — never robotic or scripted
+- Use casual WhatsApp-style language with contractions and simple wording
+- Messages should feel spontaneous and slightly imperfect, not polished
+- Vary reply length naturally (sometimes 1 sentence, sometimes 2–3)
+
+CONVERSATION BEHAVIOR
+- Match the other person's tone, energy, and response length
+- Ask light, genuine questions only when it feels natural
+- Reply like a real person who is multitasking (not instant, not overeager)
+- Avoid repeating the same phrases or sentence structures
+
+HUMAN REALISM RULES
+- Do not overuse emojis (0–1 max, only when it fits naturally)
+- Do not sound overly enthusiastic, salesy, or fake-positive
+- Do not give assistant-style or generic responses
+- If unsure, respond casually or ask for clarification like a real person
+
+TRUST & WARM-UP FOCUS
+- Prioritize friendliness, familiarity, and normal conversation
+- Keep topics safe and neutral (daily life, work, light interests)
+- Never mention AI, automation, systems, software, or business intent
+
+MESSAGE CONSTRAINTS
+- Default to short WhatsApp-style messages (1–2 sentences)
+- Avoid paragraphs, bullet points, or formal language
+- Use simple acknowledgements, light humor, or casual replies when appropriate
+
+You are not trying to impress.
+You are trying to feel familiar and human.
+
+Optional:
+- Occasionally respond with a brief acknowledgment instead of a full reply (e.g., "haha yeah", "true", "makes sense") if it fits the conversation.`;
 
     document.getElementById('ai-personality-input').value = defaultPersonality;
 
@@ -339,7 +465,7 @@ async function openAddAccountModal() {
     const hasAccount = await ipcRenderer.invoke('has-account');
 
     if (hasAccount) {
-        alert('Only one warming account is allowed. Please remove the existing account first.');
+        await showAlert('Only one warming account is allowed. Please remove the existing account first.', 'Account Limit');
         return;
     }
 
@@ -392,7 +518,7 @@ async function generateQrCode() {
     const accountName = document.getElementById('account-name').value.trim();
 
     if (!accountName) {
-        alert('Please enter an account name');
+        await showAlert('Please enter an account name', 'Validation');
         document.getElementById('account-name').focus();
         return;
     }
@@ -504,7 +630,8 @@ function getStatusText(status) {
 }
 
 async function removeAccount(accountId) {
-    if (!confirm('Are you sure you want to remove this account?')) {
+    const confirmed = await showConfirm('Are you sure you want to remove this account?', 'Remove Account');
+    if (!confirmed) {
         return;
     }
 
@@ -598,13 +725,13 @@ async function savePhoneNumber() {
     const name = document.getElementById('phone-name-input').value.trim();
 
     if (!phoneNumber) {
-        alert('Please enter a phone number');
+        await showAlert('Please enter a phone number', 'Validation');
         return;
     }
 
     // Basic validation
     if (!/^\d+$/.test(phoneNumber)) {
-        alert('Phone number should contain only digits (no + or spaces)');
+        await showAlert('Phone number should contain only digits (no + or spaces)', 'Validation');
         return;
     }
 
@@ -617,7 +744,7 @@ async function savePhoneNumber() {
         checkRequirements();
         addActivityLog(`Phone number added: ${phoneNumber}`);
     } else {
-        alert('Error: ' + result.error);
+        await showAlert('Error: ' + result.error, 'Error');
     }
 }
 
@@ -676,7 +803,8 @@ async function togglePhoneNumber(phoneId, enabled) {
 }
 
 async function removePhoneNumber(phoneId) {
-    if (!confirm('Are you sure you want to remove this phone number?')) {
+    const confirmed = await showConfirm('Are you sure you want to remove this phone number?', 'Remove Phone Number');
+    if (!confirmed) {
         return;
     }
 
@@ -730,7 +858,7 @@ async function startWarming() {
         addActivityLog('AI warming started');
         addWarmingLog('AI warming started - sending initial greetings');
     } else {
-        alert('Error: ' + result.error);
+        await showAlert('Error: ' + result.error, 'Warming Error');
     }
 }
 
@@ -1104,6 +1232,16 @@ function setupIpcListeners() {
         addActivityLog(`Error: ${data.error}`);
     });
 
+    // Warming stopped (disconnection or other reason)
+    ipcRenderer.on('warming-stopped', (event, data) => {
+        document.getElementById('start-warming-btn').style.display = 'inline-block';
+        document.getElementById('stop-warming-btn').style.display = 'none';
+
+        updateWarmingStatus(false);
+        addWarmingLog(`Warming stopped: ${data.message}`);
+        addActivityLog(`Warming stopped: ${data.message}`);
+    });
+
     // Blast progress
     ipcRenderer.on('blast-progress', (event, progress) => {
         const sentCount = document.getElementById('blast-sent-count');
@@ -1223,7 +1361,7 @@ async function uploadSticker() {
     const category = document.getElementById('sticker-category-select').value;
 
     if (!fileInput.files[0]) {
-        alert('Please select a file');
+        await showAlert('Please select a file', 'Validation');
         return;
     }
 
@@ -1231,7 +1369,7 @@ async function uploadSticker() {
 
     // Validate file type
     if (!file.type.includes('webp') && !file.name.endsWith('.webp')) {
-        alert('Only WebP format is supported');
+        await showAlert('Only WebP format is supported', 'Invalid Format');
         return;
     }
 
@@ -1251,7 +1389,7 @@ async function uploadSticker() {
             loadStickerCategories();
             addActivityLog(`Sticker uploaded to ${category} category`);
         } else {
-            alert('Error uploading sticker: ' + result.error);
+            await showAlert('Error uploading sticker: ' + result.error, 'Upload Error');
         }
     };
 
@@ -1314,7 +1452,8 @@ async function getStickerPreview(category, fileName) {
 }
 
 async function deleteSticker(category, fileName) {
-    if (!confirm(`Delete sticker "${fileName}" from ${category}?`)) {
+    const confirmed = await showConfirm(`Delete sticker "${fileName}" from ${category}?`, 'Delete Sticker');
+    if (!confirmed) {
         return;
     }
 
@@ -1327,7 +1466,7 @@ async function deleteSticker(category, fileName) {
         loadStickerCategories();
         addActivityLog(`Sticker deleted from ${category}`);
     } else {
-        alert('Error deleting sticker: ' + result.error);
+        await showAlert('Error deleting sticker: ' + result.error, 'Delete Error');
     }
 }
 
@@ -1592,11 +1731,11 @@ async function editMediaContext(mediaId) {
     const item = mediaItems.find(m => m.id === mediaId);
 
     if (!item) {
-        alert('Media item not found');
+        await showAlert('Media item not found', 'Error');
         return;
     }
 
-    const newContext = prompt('Edit context/description (minimum 10 characters):', item.context);
+    const newContext = await showPrompt('Edit context/description (minimum 10 characters):', item.context, 'Edit Context');
 
     if (newContext === null) {
         return; // User cancelled
@@ -1604,12 +1743,12 @@ async function editMediaContext(mediaId) {
 
     // Validate context
     if (!newContext || newContext.trim().length === 0) {
-        alert('Context cannot be empty!');
+        await showAlert('Context cannot be empty!', 'Validation');
         return;
     }
 
     if (newContext.trim().length < 10) {
-        alert('Please provide more detail (minimum 10 characters)');
+        await showAlert('Please provide more detail (minimum 10 characters)', 'Validation');
         return;
     }
 
@@ -1622,12 +1761,13 @@ async function editMediaContext(mediaId) {
         loadMediaItems();
         addActivityLog('Media context updated');
     } else {
-        alert('Error updating context: ' + result.error);
+        await showAlert('Error updating context: ' + result.error, 'Error');
     }
 }
 
 async function deleteMedia(mediaId) {
-    if (!confirm('Are you sure you want to delete this media item?')) {
+    const confirmed = await showConfirm('Are you sure you want to delete this media item?', 'Delete Media');
+    if (!confirmed) {
         return;
     }
 
@@ -1637,7 +1777,7 @@ async function deleteMedia(mediaId) {
         loadMediaItems();
         addActivityLog('Media deleted');
     } else {
-        alert('Error deleting media: ' + result.error);
+        await showAlert('Error deleting media: ' + result.error, 'Delete Error');
     }
 }
 
@@ -1726,7 +1866,7 @@ function initializeBlastingTab() {
     }
 }
 
-function handleBlastImageUpload(event) {
+async function handleBlastImageUpload(event) {
     const file = event.target.files[0];
     if (!file) {
         blastImageData = null;
@@ -1738,14 +1878,14 @@ function handleBlastImageUpload(event) {
     // Validate file type
     const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png'];
     if (!allowedTypes.includes(file.type)) {
-        alert('Only JPG and PNG formats are supported');
+        await showAlert('Only JPG and PNG formats are supported', 'Invalid Format');
         event.target.value = '';
         return;
     }
 
     // Validate file size (5MB max)
     if (file.size > 5242880) {
-        alert('File size must be less than 5MB');
+        await showAlert('File size must be less than 5MB', 'File Too Large');
         event.target.value = '';
         return;
     }
@@ -1776,11 +1916,11 @@ function updateCharCount() {
     charCount.textContent = messageInput.value.length;
 }
 
-function previewBlast() {
+async function previewBlast() {
     const message = document.getElementById('blast-message-input').value.trim();
 
     if (!message) {
-        alert('Please enter a message');
+        await showAlert('Please enter a message', 'Validation');
         return;
     }
 
@@ -1834,14 +1974,14 @@ function resetBlast() {
 
 async function startBlast() {
     if (isBlasting) {
-        alert('A blast is already in progress');
+        await showAlert('A blast is already in progress', 'Blast In Progress');
         return;
     }
 
     const message = document.getElementById('blast-message-input').value.trim();
 
     if (!message) {
-        alert('Please enter a message');
+        await showAlert('Please enter a message', 'Validation');
         return;
     }
 
@@ -1853,7 +1993,8 @@ async function startBlast() {
     }
 
     const confirmMsg = `Send this message to ${stats.totalRecipients} recipient(s)?\n\nEstimated time: ${Math.ceil(stats.estimatedTime / 60)} minute(s)\n\nThis action cannot be undone.`;
-    if (!confirm(confirmMsg)) {
+    const confirmed = await showConfirm(confirmMsg, 'Confirm Blast');
+    if (!confirmed) {
         return;
     }
 

@@ -1,14 +1,27 @@
-# WhatsApp Warmer - Desktop Application
+# AP-Dash - WhatsApp Automation Dashboard
 
-A professional Electron.js desktop application for warming WhatsApp accounts through automated messaging between your connected accounts.
+A professional Electron.js desktop application for warming WhatsApp accounts through AI-powered automated messaging.
 
 ## Features
 
-- **Account Manager**: Add a whatsaoo account and muktiple numbers to warmup
-- **Live Chat View**: See real-time messages being sent and received
-- **Auto Warmer**: Automated warming with configurable message frequency
-- **Dashboard**: Track stats including connected accounts and daily message count
-- **Session Persistence**: Accounts stay logged in between app restarts
+### Core Features
+- **Account Manager**: Connect a WhatsApp account via QR code
+- **Phone Number Management**: Add multiple phone numbers to warm up
+- **AI-Powered Conversations**: Uses Google Gemini AI for natural, human-like responses
+- **Customizable AI Personality**: Define how the AI behaves and responds
+- **Session Recovery**: Automatically restores WhatsApp sessions on app restart
+- **Disconnection Detection**: Automatically stops warming and notifies you when WhatsApp disconnects
+
+### Media Features
+- **Sticker Library**: Upload and send WebP stickers during conversations
+- **Media Library**: Upload images with context descriptions for AI-aware sharing
+- **Message Blasting**: Send messages (with optional images) to multiple recipients
+
+### UI/UX
+- **Modern Dark Theme**: Sleek, professional interface
+- **Custom Styled Dialogs**: Beautiful alerts, confirms, and prompts matching the app theme
+- **Live Activity Log**: Real-time tracking of all warming activity
+- **Dashboard Stats**: Track messages sent and connection status
 
 ## Installation
 
@@ -27,136 +40,163 @@ For development mode with DevTools:
 npm run dev
 ```
 
-## How to Use
+## Setup Guide
 
-### Adding Accounts
+### 1. Configure API Key
+
+1. Navigate to the **Settings** tab
+2. Get your Gemini API key from [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
+3. Enter your API key and click **Save**
+
+### 2. Customize AI Personality
+
+1. In **Settings**, find the **AI Personality** section
+2. Customize how the AI responds (tone, style, behavior)
+3. Click **Save AI Personality**
+
+The default personality is optimized for natural, human-like conversations that build trust and familiarity.
+
+### 3. Add WhatsApp Account
 
 1. Navigate to the **Accounts** tab
 2. Click **"+ Add Account"**
-3. Enter an account name (e.g., "Business Account 1")
+3. Enter an account name
 4. Click **"Generate QR Code"**
-5. Open WhatsApp on your phone
-6. Go to Settings > Linked Devices > Link a Device
-7. Scan the QR code displayed in the app
-8. Wait for the connection to be established
+5. Scan with WhatsApp on your phone (Settings > Linked Devices > Link a Device)
+6. Wait for connection confirmation
 
-Repeat this process for each WhatsApp account you want to add. You need at least 2 accounts to start warming.
+### 4. Add Phone Numbers
 
-### Starting Auto Warming
+1. Go to the **Phone Numbers** tab
+2. Click **"+ Add Phone Number"**
+3. Enter the phone number (digits only, no + or spaces)
+4. Optionally add a name for the contact
+5. Click **Add**
 
-1. Navigate to the **Auto Warmer** tab
-2. Adjust the **"Messages per Hour"** slider (recommended: 5-10)
+### 5. Start Warming
+
+1. Navigate to the **Warmer** tab
+2. Ensure all requirements are met (green checkmarks)
 3. Click **"Start Warming"**
 
-The app will automatically:
-- Select random pairs of your connected accounts
-- Send natural-looking messages between them
-- Use random delays to appear more human-like
-- Track all warming activity in the log
+The AI will:
+- Send unique, varied greeting messages to each number
+- Respond naturally to incoming messages
+- Occasionally send stickers and media (if enabled)
+- Use random delays to appear human-like
 
-### Viewing Messages
+## Features in Detail
 
-Switch to the **Live Chat** tab to see all messages being sent and received in real-time.
+### AI Personality System
 
-### Dashboard Overview
+The AI personality defines how the bot communicates. Key aspects:
+- Tone and style (casual, professional, friendly)
+- Message length and format
+- Conversation behavior
+- Topics to avoid
 
-The Dashboard provides a quick summary:
-- Number of connected accounts
-- Messages sent today
-- Current warming status
-- Recent activity log
+The personality is fully customizable in Settings.
+
+### Session Recovery
+
+When you restart the app:
+- Existing WhatsApp sessions are automatically restored
+- No need to re-scan QR codes (unless session expired)
+- Warming can be resumed immediately
+
+### Disconnection Handling
+
+If WhatsApp disconnects (e.g., logged out from phone):
+- Warming automatically stops
+- You receive a notification with the reason
+- UI updates to reflect disconnected state
+
+### Sticker Support
+
+1. Go to **Stickers** tab
+2. Upload WebP format stickers to categories
+3. Enable sticker sending in sticker settings
+4. AI will occasionally send relevant stickers during conversations
+
+### Media Library
+
+1. Go to **Media** tab
+2. Upload images (JPG/PNG, max 5MB)
+3. Add detailed context/description for each image
+4. AI uses the context to naturally share images in conversations
+
+### Message Blasting
+
+1. Go to **Message Blasting** tab
+2. Compose your message
+3. Optionally attach an image
+4. Preview and confirm
+5. Messages are sent with delays to avoid detection
+
+## Configuration
+
+### Response Delays
+- **Minimum Delay**: Shortest wait before responding (default: 3s)
+- **Maximum Delay**: Longest wait before responding (default: 8s)
+
+### Typing Duration
+- **Minimum**: Shortest typing indicator time (default: 2s)
+- **Maximum**: Longest typing indicator time (default: 5s)
+
+### Sticker Settings
+- **Enable/Disable**: Toggle sticker sending
+- **Frequency**: How often to send stickers (0-100%)
+- **Fallback to Text**: Send text if sticker fails
+
+### Media Settings
+- **Enable/Disable**: Toggle media sharing
+- **Frequency**: How often to share media (0-100%)
+- **Require Context**: Only share media with descriptions
 
 ## Technical Details
 
 ### Built With
-
 - **Electron.js** - Desktop application framework
 - **whatsapp-web.js** - WhatsApp Web API integration
+- **Google Gemini AI** - Natural language generation
 - **Node.js** - Backend runtime
-- **Puppeteer** - Browser automation (used by whatsapp-web.js)
+- **Puppeteer** - Browser automation
 
 ### Data Storage
-
-- **Sessions**: Stored in `/sessions` directory (keeps accounts logged in)
-- **Account Data**: Stored in `/data/accounts.json`
-- **Statistics**: Stored in `/data/stats.json`
-
-### Message Templates
-
-The app uses 20 pre-written message templates that sound natural:
-- "Hey, how are you?"
-- "What's up?"
-- "Thanks!"
-- "Sure, let's do it"
-- And 16 more...
-
-Messages are randomly selected to create varied, natural-looking conversations.
-
-## Configuration
-
-### Warming Settings
-
-- **Messages per Hour**: Controls how frequently warming messages are sent
-- **Random Delays**: Built-in randomization (2-10 minutes) between messages
-- **Auto Selection**: Accounts are randomly paired for each message
-
-### Recommended Settings
-
-For best results:
-- Start with 5-8 messages per hour
-- Have at least 3-5 accounts connected
-- Run the warmer for several hours daily
-- Monitor the warming log for any issues
+```
+ap-dash/
+├── sessions/           # WhatsApp session data (auto-restored)
+├── data/
+│   ├── accounts.json   # Account information
+│   ├── phone_numbers.json
+│   ├── config.json     # Settings & AI personality
+│   ├── stats.json      # Statistics
+│   └── media_index.json
+├── stickers/           # Uploaded stickers by category
+└── media/              # Uploaded media files
+```
 
 ## Troubleshooting
 
+### Session Not Restoring
+- Check if session files exist in `/sessions` folder
+- Try removing and re-adding the account
+- Ensure you didn't log out from your phone
+
+### AI Not Responding
+- Verify your Gemini API key is valid
+- Check the AI Personality is not empty
+- Look for errors in the activity log
+
+### Warming Stops Unexpectedly
+- Check if WhatsApp disconnected (look at account status)
+- Verify your phone has internet connection
+- Check the warming log for error messages
+
 ### QR Code Not Appearing
-
-- Make sure you have a stable internet connection
-- Try closing and reopening the Add Account modal
-- Check the console (Dev mode) for error messages
-
-### Account Disconnected
-
-- WhatsApp may disconnect accounts that are inactive for too long
-- Simply reconnect by going to Accounts tab and removing/re-adding
-- Sessions are saved, so reconnecting is usually automatic
-
-### Warming Not Sending Messages
-
-- Verify at least 2 accounts show "Connected" status
-- Check that accounts can message each other normally
-- Look for errors in the Warming Log
-
-### Messages Not Delivering
-
-- Ensure the phone numbers can message each other
-- Check that WhatsApp accounts are not banned or restricted
-- Verify both accounts are properly connected
-
-## Project Structure
-
-```
-whatsapp-warmer/
-├── main.js              # Electron main process
-├── renderer.js          # UI logic and IPC communication
-├── whatsapp.js          # WhatsApp Web integration
-├── index.html           # UI structure
-├── styles.css           # Styling
-├── package.json         # Dependencies
-├── sessions/            # WhatsApp session data
-└── data/               # Application data
-    ├── accounts.json   # Account information
-    └── stats.json      # Statistics
-```
-
-## Important Notes
-
-- This app uses the official WhatsApp Web API through whatsapp-web.js
-- Your WhatsApp accounts must remain active on your phone
-- The app simulates normal human usage patterns
-- Only use with accounts you own and have permission to automate
-- Excessive automated messaging may violate WhatsApp's Terms of Service
+- Ensure stable internet connection
+- Close and reopen the Add Account modal
+- Check console in Dev mode for errors
 
 ## System Requirements
 
@@ -166,12 +206,12 @@ whatsapp-warmer/
 - Active internet connection
 - Phone with WhatsApp installed
 
-## Support
+## Important Notes
 
-For issues or questions, please check:
-1. The Warming Log in the Auto Warmer tab
-2. The Activity Log in the Dashboard
-3. Browser console (Dev mode: `npm run dev`)
+- Only use with accounts you own and have permission to automate
+- The AI is configured to never mention automation or AI
+- Excessive messaging may violate WhatsApp's Terms of Service
+- Sessions persist but may expire if unused for extended periods
 
 ## License
 
