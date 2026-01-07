@@ -5,6 +5,8 @@
 let currentAccountId = null;
 let warmingMessageCount = 0;
 let activeConversations = [];
+let cachedMessages = {}; // Cache messages by phone number for faster updates
+let targetedPhoneNumbers = new Set(); // Cache targeted numbers
 
 // Custom dialog functions to replace native alert/confirm/prompt
 function showAlert(message, title = 'Alert') {
@@ -773,6 +775,10 @@ async function savePhoneNumber() {
 
 async function loadPhoneNumbers() {
     const phoneNumbers = await window.electronAPI.getPhoneNumbers();
+
+    // Update cache for chat filtering
+    targetedPhoneNumbers = new Set(phoneNumbers.map(p => p.number));
+
     const listEl = document.getElementById('phone-numbers-list');
 
     if (phoneNumbers.length === 0) {
@@ -987,7 +993,112 @@ function clearDemoMessages() {
 async function loadMessages() {
     const messagesByPhone = await window.electronAPI.getMessagesByPhone();
     const targetedNumbers = await window.electronAPI.getPhoneNumbers();
+
+    // Update caches
+    cachedMessages = messagesByPhone || {};
+    targetedPhoneNumbers = new Set(targetedNumbers.map(p => p.number));
+
     displaySegmentedMessages(messagesByPhone, targetedNumbers);
+}
+
+// Optimized function to add a single new message without full reload
+function addMessageToChat(messageData) {
+    const phoneNumber = messageData.phoneNumber;
+
+    // Skip if not a targeted number
+    if (!targetedPhoneNumbers.has(phoneNumber)) {
+        return;
+    }
+
+    // Skip status broadcasts
+    if (phoneNumber.includes('status') || phoneNumber.includes('broadcast')) {
+        return;
+    }
+
+    // Add to cache
+    if (!cachedMessages[phoneNumber]) {
+        cachedMessages[phoneNumber] = [];
+    }
+    cachedMessages[phoneNumber].push(messageData.message);
+
+    // Get or create segment
+    let segment = document.getElementById(`chat-segment-${phoneNumber}`);
+    const container = document.getElementById('chat-segments-container');
+
+    // Remove empty state if it exists
+    const emptyState = container.querySelector('.empty-state');
+    if (emptyState) {
+        emptyState.remove();
+    }
+
+    if (!segment) {
+        // Create new segment
+        segment = document.createElement('div');
+        segment.className = 'chat-segment';
+        segment.id = `chat-segment-${phoneNumber}`;
+
+        const header = document.createElement('div');
+        header.className = 'chat-segment-header';
+        header.innerHTML = `
+            <h3>📱 +${escapeHtml(phoneNumber)}</h3>
+            <span class="message-count">1 message</span>
+        `;
+
+        const chatContainer = document.createElement('div');
+        chatContainer.className = 'chat-segment-messages';
+
+        segment.appendChild(header);
+        segment.appendChild(chatContainer);
+        container.appendChild(segment);
+    }
+
+    // Update message count
+    const messageCount = segment.querySelector('.message-count');
+    const count = cachedMessages[phoneNumber].length;
+    messageCount.textContent = `${count} message${count !== 1 ? 's' : ''}`;
+
+    // Get chat container
+    const chatContainer = segment.querySelector('.chat-segment-messages');
+
+    // Create message element
+    const msg = messageData.message;
+    const time = new Date(msg.timestamp * 1000).toLocaleTimeString();
+
+    let displayBody = escapeHtml(msg.body || '');
+    let mediaIndicator = '';
+
+    // Add media indicators
+    if (msg.hasMedia && msg.mediaContext) {
+        if (msg.mediaContext.type === 'image') {
+            const desc = msg.mediaContext.description || 'an image';
+            mediaIndicator = `<div class="media-indicator image-indicator">
+                📷 Image: ${escapeHtml(desc)}
+            </div>`;
+        } else if (msg.mediaContext.type === 'voice') {
+            const trans = msg.mediaContext.transcription || '[voice message]';
+            mediaIndicator = `<div class="media-indicator voice-indicator">
+                🎤 Voice: "${escapeHtml(trans)}"
+            </div>`;
+            displayBody = ''; // Voice messages don't have separate body
+        }
+    }
+
+    const messageDiv = document.createElement('div');
+    messageDiv.className = `chat-message ${msg.fromMe ? 'message-own' : 'message-received'}`;
+    messageDiv.innerHTML = `
+        ${mediaIndicator}
+        ${displayBody ? `<div class="message-body">${displayBody}</div>` : ''}
+        <div class="message-time">${time}</div>
+    `;
+
+    // Append message
+    chatContainer.appendChild(messageDiv);
+
+    // Auto-scroll to bottom with smooth animation
+    chatContainer.scrollTo({
+        top: chatContainer.scrollHeight,
+        behavior: 'smooth'
+    });
 }
 
 function displaySegmentedMessages(messagesByPhone, targetedNumbers = []) {
@@ -1007,7 +1118,9 @@ function displaySegmentedMessages(messagesByPhone, targetedNumbers = []) {
     // Create a set of targeted phone numbers for quick lookup
     const targetedPhoneSet = new Set(targetedNumbers.map(p => p.number));
 
-    container.innerHTML = '';
+    // Use DocumentFragment for better performance
+    const fragment = document.createDocumentFragment();
+    let hasConversations = false;
 
     for (const [phoneNumber, messages] of Object.entries(messagesByPhone)) {
         // Skip if no messages
@@ -1070,14 +1183,22 @@ function displaySegmentedMessages(messagesByPhone, targetedNumbers = []) {
 
         segment.appendChild(header);
         segment.appendChild(chatContainer);
-        container.appendChild(segment);
+        fragment.appendChild(segment);
+        hasConversations = true;
 
-        // Auto-scroll to bottom of each segment
-        chatContainer.scrollTop = chatContainer.scrollHeight;
+        // Schedule scroll to happen after DOM update
+        setTimeout(() => {
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }, 0);
     }
 
-    // If no targeted conversations were found, show empty state
-    if (container.children.length === 0) {
+    // Clear and append all at once for better performance
+    container.innerHTML = '';
+
+    if (hasConversations) {
+        container.appendChild(fragment);
+    } else {
+        // If no targeted conversations were found, show empty state
         container.innerHTML = `
             <div class="empty-state">
                 <div class="empty-icon">💬</div>
@@ -1234,12 +1355,13 @@ function setupIpcListeners() {
         checkRequirements();
     });
 
-    // New message
+    // New message - use incremental update for speed
     window.electronAPI.onNewMessage((data) => {
-        loadMessages();
+        // Use fast incremental update instead of full reload
+        addMessageToChat(data);
     });
 
-    // Warming message sent
+    // Warming message sent - use incremental update
     window.electronAPI.onWarmingMessageSent((data) => {
         warmingMessageCount++;
         document.getElementById('warming-messages-sent').textContent = warmingMessageCount;
@@ -1247,8 +1369,21 @@ function setupIpcListeners() {
         const time = new Date(data.timestamp).toLocaleTimeString();
         addWarmingLog(`Sent to ${data.to}: "${data.message}"`);
 
-        // Reload messages to update chat view with new segmented system
-        loadMessages();
+        // Use fast incremental update instead of full reload
+        // Create message data in the expected format
+        const messageData = {
+            phoneNumber: data.to,
+            message: {
+                id: `msg_${Date.now()}_sent`,
+                from: 'me',
+                to: data.to,
+                body: data.message,
+                timestamp: Math.floor(data.timestamp / 1000),
+                fromMe: true,
+                hasMedia: false
+            }
+        };
+        addMessageToChat(messageData);
     });
 
     // Warming message received
