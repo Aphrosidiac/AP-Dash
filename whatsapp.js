@@ -648,35 +648,36 @@ Generate a natural, casual message (1-2 sentences) to accompany this image. Make
 
             // Message received event - Listen for replies from phone numbers
             client.on('message', async (message) => {
-                // Create unique message ID to prevent duplicates
-                const messageId = `${message.from}_${message.timestamp}_${message.body.substring(0, 20)}`;
+                try {
+                    // Create unique message ID to prevent duplicates
+                    const messageId = `${message.from}_${message.timestamp}_${message.body.substring(0, 20)}`;
 
-                // Skip if already processed
-                if (this.processedMessageIds.has(messageId)) {
-                    return;
-                }
-                this.processedMessageIds.add(messageId);
+                    // Skip if already processed
+                    if (this.processedMessageIds.has(messageId)) {
+                        return;
+                    }
+                    this.processedMessageIds.add(messageId);
 
-                // Clean up old message IDs (keep last 1000)
-                if (this.processedMessageIds.size > 1000) {
-                    const idsArray = Array.from(this.processedMessageIds);
-                    this.processedMessageIds = new Set(idsArray.slice(-500));
-                }
+                    // Clean up old message IDs (keep last 1000)
+                    if (this.processedMessageIds.size > 1000) {
+                        const idsArray = Array.from(this.processedMessageIds);
+                        this.processedMessageIds = new Set(idsArray.slice(-500));
+                    }
 
-                // Extract phone number
-                const phoneNumber = message.fromMe
-                    ? message.to.replace('@c.us', '')
-                    : message.from.replace('@c.us', '');
+                    // Extract phone number
+                    const phoneNumber = message.fromMe
+                        ? message.to.replace('@c.us', '')
+                        : message.from.replace('@c.us', '');
 
-                // Handle media if present
-                const hasMedia = message.hasMedia;
-                const messageType = message.type;
-                let mediaContext = null;
+                    // Handle media if present
+                    const hasMedia = message.hasMedia;
+                    const messageType = message.type;
+                    let mediaContext = null;
 
-                if (hasMedia && !message.fromMe) {
-                    console.log(`Message has media: ${messageType}`);
-                    mediaContext = await this.handleMediaMessage(message);
-                }
+                    if (hasMedia && !message.fromMe) {
+                        console.log(`Message has media: ${messageType}`);
+                        mediaContext = await this.handleMediaMessage(message);
+                    }
 
                 // Add message to phone-specific storage
                 this.addMessageToPhone(phoneNumber, {
@@ -767,27 +768,41 @@ Generate a natural, casual message (1-2 sentences) to accompany this image. Make
 
                             console.log(`Waiting ${Math.round(delay / 1000)}s before responding...`);
                             setTimeout(async () => {
-                                await this.sendAIReply(fromNumber);
+                                try {
+                                    await this.sendAIReply(fromNumber);
+                                } catch (error) {
+                                    console.error(`Error sending AI reply to ${fromNumber}:`, error);
+                                    this.mainWindow.webContents.send('warming-error', {
+                                        error: `Failed to send reply to ${fromNumber}: ${error.message}`
+                                    });
+                                }
                             }, delay);
                         }
                     }
                 }
 
-                // Send to renderer for UI update
-                this.mainWindow.webContents.send('new-message', {
-                    phoneNumber,
-                    message: {
-                        id: messageId,
-                        from: message.from,
-                        to: message.to,
-                        body: message.body,
-                        timestamp: message.timestamp,
-                        fromMe: message.fromMe,
-                        hasMedia: hasMedia,
-                        mediaType: messageType,
-                        mediaContext: mediaContext
-                    }
-                });
+                    // Send to renderer for UI update
+                    this.mainWindow.webContents.send('new-message', {
+                        phoneNumber,
+                        message: {
+                            id: messageId,
+                            from: message.from,
+                            to: message.to,
+                            body: message.body,
+                            timestamp: message.timestamp,
+                            fromMe: message.fromMe,
+                            hasMedia: hasMedia,
+                            mediaType: messageType,
+                            mediaContext: mediaContext
+                        }
+                    });
+                } catch (error) {
+                    console.error('Error handling incoming message:', error);
+                    // Don't crash the app, just log the error
+                    this.mainWindow.webContents.send('warming-error', {
+                        error: `Message handling error: ${error.message}`
+                    });
+                }
             });
 
             // Initialize client
@@ -920,30 +935,31 @@ Generate a natural, casual message (1-2 sentences) to accompany this image. Make
 
             // Message received event - same as addAccount
             client.on('message', async (message) => {
-                const messageId = `${message.from}_${message.timestamp}_${message.body.substring(0, 20)}`;
+                try {
+                    const messageId = `${message.from}_${message.timestamp}_${message.body.substring(0, 20)}`;
 
-                if (this.processedMessageIds.has(messageId)) {
-                    return;
-                }
-                this.processedMessageIds.add(messageId);
+                    if (this.processedMessageIds.has(messageId)) {
+                        return;
+                    }
+                    this.processedMessageIds.add(messageId);
 
-                if (this.processedMessageIds.size > 1000) {
-                    const idsArray = Array.from(this.processedMessageIds);
-                    this.processedMessageIds = new Set(idsArray.slice(-500));
-                }
+                    if (this.processedMessageIds.size > 1000) {
+                        const idsArray = Array.from(this.processedMessageIds);
+                        this.processedMessageIds = new Set(idsArray.slice(-500));
+                    }
 
-                const phoneNumber = message.fromMe
-                    ? message.to.replace('@c.us', '')
-                    : message.from.replace('@c.us', '');
+                    const phoneNumber = message.fromMe
+                        ? message.to.replace('@c.us', '')
+                        : message.from.replace('@c.us', '');
 
-                const hasMedia = message.hasMedia;
-                const messageType = message.type;
-                let mediaContext = null;
+                    const hasMedia = message.hasMedia;
+                    const messageType = message.type;
+                    let mediaContext = null;
 
-                if (hasMedia && !message.fromMe) {
-                    console.log(`Message has media: ${messageType}`);
-                    mediaContext = await this.handleMediaMessage(message);
-                }
+                    if (hasMedia && !message.fromMe) {
+                        console.log(`Message has media: ${messageType}`);
+                        mediaContext = await this.handleMediaMessage(message);
+                    }
 
                 this.addMessageToPhone(phoneNumber, {
                     id: messageId,
@@ -964,31 +980,107 @@ Generate a natural, casual message (1-2 sentences) to accompany this image. Make
                     const fromNumber = message.from.replace('@c.us', '');
 
                     if (this.warmingConfig && this.warmingConfig.phoneNumbers.includes(fromNumber)) {
+                        // Format message text with media context
                         let messageText = message.body || '';
+
                         if (mediaContext) {
-                            messageText = messageText
-                                ? `${messageText} [They also sent: ${mediaContext}]`
-                                : `[They sent: ${mediaContext}]`;
+                            if (mediaContext.type === 'voice') {
+                                messageText = `[Voice message: "${mediaContext.transcription}"]`;
+                            } else if (mediaContext.type === 'image') {
+                                const caption = message.body ? ` Caption: "${message.body}"` : '';
+                                messageText = `[Sent an image: ${mediaContext.description}${caption}]`;
+                            }
                         }
 
-                        await this.handleIncomingMessage(fromNumber, messageText);
+                        console.log(`Received reply from ${fromNumber}: ${messageText}`);
+
+                        // Add to conversation history
+                        if (!this.activeConversations.has(fromNumber)) {
+                            this.activeConversations.set(fromNumber, { history: [], lastMessageTime: Date.now() });
+                        }
+
+                        const conversation = this.activeConversations.get(fromNumber);
+                        conversation.history.push({
+                            role: 'user',
+                            text: messageText,
+                            timestamp: Date.now(),
+                            hasMedia: hasMedia,
+                            mediaType: messageType,
+                            mediaContext: mediaContext
+                        });
+                        conversation.lastMessageTime = Date.now();
+
+                        // Log the received message
+                        this.mainWindow.webContents.send('warming-message-received', {
+                            from: fromNumber,
+                            message: message.body,
+                            timestamp: Date.now()
+                        });
+
+                        // Check if this number is disabled
+                        const isDisabled = this.disabledNumbers.has(fromNumber);
+
+                        if (isDisabled) {
+                            // Queue the message for later processing
+                            console.log(`Number ${fromNumber} is disabled, queuing message`);
+                            this.queuedMessages.set(fromNumber, {
+                                message: message.body,
+                                timestamp: Date.now()
+                            });
+                            this.mainWindow.webContents.send('warming-log', {
+                                message: `Message from ${fromNumber} queued (number disabled)`
+                            });
+                        } else {
+                            // 15% chance to react with emoji in addition to text
+                            const shouldReact = Math.random() < 0.15;
+
+                            if (shouldReact) {
+                                // React immediately
+                                console.log(`Reacting to message from ${fromNumber} (15% chance)`);
+                                await this.sendEmojiReaction(message, fromNumber);
+                            }
+
+                            // Always send text reply after delay
+                            const delayMin = (this.warmingConfig?.delayMin || 3) * 1000;
+                            const delayMax = (this.warmingConfig?.delayMax || 8) * 1000;
+                            const delay = delayMin + Math.random() * (delayMax - delayMin);
+
+                            console.log(`Waiting ${Math.round(delay / 1000)}s before responding...`);
+                            setTimeout(async () => {
+                                try {
+                                    await this.sendAIReply(fromNumber);
+                                } catch (error) {
+                                    console.error(`Error sending AI reply to ${fromNumber}:`, error);
+                                    this.mainWindow.webContents.send('warming-error', {
+                                        error: `Failed to send reply to ${fromNumber}: ${error.message}`
+                                    });
+                                }
+                            }, delay);
+                        }
                     }
                 }
 
-                this.mainWindow.webContents.send('message-received', {
-                    accountId: this.accountId,
-                    message: {
-                        id: messageId,
-                        from: message.from,
-                        to: message.to,
-                        body: message.body,
-                        timestamp: message.timestamp,
-                        fromMe: message.fromMe,
-                        hasMedia: hasMedia,
-                        mediaType: messageType,
-                        mediaContext: mediaContext
-                    }
-                });
+                    this.mainWindow.webContents.send('message-received', {
+                        accountId: this.accountId,
+                        message: {
+                            id: messageId,
+                            from: message.from,
+                            to: message.to,
+                            body: message.body,
+                            timestamp: message.timestamp,
+                            fromMe: message.fromMe,
+                            hasMedia: hasMedia,
+                            mediaType: messageType,
+                            mediaContext: mediaContext
+                        }
+                    });
+                } catch (error) {
+                    console.error('Error handling incoming message:', error);
+                    // Don't crash the app, just log the error
+                    this.mainWindow.webContents.send('warming-error', {
+                        error: `Message handling error: ${error.message}`
+                    });
+                }
             });
 
             // Initialize client - will auto-restore session if valid

@@ -6,6 +6,83 @@ const WhatsAppManager = require('./whatsapp');
 let mainWindow;
 let whatsappManager;
 
+// Security: Sanitize file paths to prevent path traversal attacks
+function sanitizeFilePath(userInput, allowedChars = /^[a-zA-Z0-9_.-]+$/) {
+    if (!userInput || typeof userInput !== 'string') {
+        throw new Error('Invalid file path input');
+    }
+
+    // Remove any path traversal attempts
+    const sanitized = path.basename(userInput);
+
+    // Check if it matches allowed characters
+    if (!allowedChars.test(sanitized)) {
+        throw new Error('Invalid characters in file path');
+    }
+
+    // Prevent hidden files
+    if (sanitized.startsWith('.')) {
+        throw new Error('Hidden files not allowed');
+    }
+
+    return sanitized;
+}
+
+// Security: Validate category names
+function sanitizeCategory(category) {
+    const allowedCategories = ['funny', 'love', 'sad', 'excited', 'thumbs_up', 'thinking', 'wow', 'casual'];
+    if (!allowedCategories.includes(category)) {
+        throw new Error('Invalid category');
+    }
+    return category;
+}
+
+// Security: Validate and sanitize account name
+function validateAccountName(name) {
+    if (!name || typeof name !== 'string') {
+        throw new Error('Account name is required');
+    }
+    const trimmed = name.trim();
+    if (trimmed.length < 3 || trimmed.length > 50) {
+        throw new Error('Account name must be between 3-50 characters');
+    }
+    if (!/^[a-zA-Z0-9\s\-_.]+$/.test(trimmed)) {
+        throw new Error('Account name contains invalid characters');
+    }
+    return trimmed;
+}
+
+// Security: Validate and sanitize phone number
+function validatePhoneNumber(phoneNumber) {
+    if (!phoneNumber || typeof phoneNumber !== 'string') {
+        throw new Error('Phone number is required');
+    }
+    const trimmed = phoneNumber.trim();
+    if (!/^\d+$/.test(trimmed)) {
+        throw new Error('Phone number must contain only digits');
+    }
+    if (trimmed.length < 8 || trimmed.length > 15) {
+        throw new Error('Phone number must be between 8-15 digits');
+    }
+    return trimmed;
+}
+
+// Security: Validate and sanitize name field
+function validateName(name) {
+    if (!name) return '';
+    if (typeof name !== 'string') {
+        throw new Error('Name must be a string');
+    }
+    const trimmed = name.trim();
+    if (trimmed.length > 50) {
+        throw new Error('Name must be less than 50 characters');
+    }
+    if (trimmed && !/^[a-zA-Z0-9\s\-_.]+$/.test(trimmed)) {
+        throw new Error('Name contains invalid characters');
+    }
+    return trimmed;
+}
+
 const DATA_DIR = path.join(__dirname, 'data');
 const SESSIONS_DIR = path.join(__dirname, 'sessions');
 const ACCOUNTS_FILE = path.join(DATA_DIR, 'accounts.json');
@@ -106,8 +183,10 @@ function createWindow() {
         width: 1200,
         height: 800,
         webPreferences: {
-            nodeIntegration: true,
-            contextIsolation: false
+            preload: path.join(__dirname, 'preload.js'),
+            nodeIntegration: false,
+            contextIsolation: true,
+            sandbox: true
         },
         icon: path.join(__dirname, 'icon.png')
     });
@@ -197,6 +276,9 @@ ipcMain.handle('has-account', async () => {
 // Add new account (only one allowed)
 ipcMain.handle('add-account', async (event, accountName) => {
     try {
+        // Security: Validate account name
+        const validatedName = validateAccountName(accountName);
+
         const accounts = JSON.parse(fs.readFileSync(ACCOUNTS_FILE, 'utf-8'));
 
         // Check if account already exists
@@ -208,7 +290,7 @@ ipcMain.handle('add-account', async (event, accountName) => {
 
         const newAccount = {
             id: accountId,
-            name: accountName,
+            name: validatedName,
             phoneNumber: '',
             status: 'connecting',
             addedAt: new Date().toISOString()
@@ -277,17 +359,21 @@ ipcMain.handle('get-phone-numbers', async () => {
 // Add phone number
 ipcMain.handle('add-phone-number', async (event, phoneNumber, name) => {
     try {
+        // Security: Validate phone number and name
+        const validatedNumber = validatePhoneNumber(phoneNumber);
+        const validatedName = validateName(name);
+
         let phoneNumbers = JSON.parse(fs.readFileSync(PHONE_NUMBERS_FILE, 'utf-8'));
 
         // Check if number already exists
-        if (phoneNumbers.some(p => p.number === phoneNumber)) {
+        if (phoneNumbers.some(p => p.number === validatedNumber)) {
             return { success: false, error: 'Phone number already exists' };
         }
 
         const newNumber = {
             id: `phone_${Date.now()}`,
-            number: phoneNumber,
-            name: name || phoneNumber,
+            number: validatedNumber,
+            name: validatedName || validatedNumber,
             addedAt: new Date().toISOString()
         };
 
@@ -538,8 +624,12 @@ ipcMain.handle('get-sticker-categories', async () => {
 // Upload sticker file
 ipcMain.handle('upload-sticker', async (event, { category, fileName, fileData }) => {
     try {
+        // Security: Validate category and fileName
+        const sanitizedCategory = sanitizeCategory(category);
+        let sanitizedFileName = sanitizeFilePath(fileName);
+
         const stickersDir = path.join(DATA_DIR, 'stickers');
-        const categoryPath = path.join(stickersDir, category);
+        const categoryPath = path.join(stickersDir, sanitizedCategory);
 
         // Ensure category directory exists
         if (!fs.existsSync(categoryPath)) {
@@ -547,17 +637,30 @@ ipcMain.handle('upload-sticker', async (event, { category, fileName, fileData })
         }
 
         // Ensure .webp extension
-        if (!fileName.endsWith('.webp')) {
-            fileName = fileName.replace(/\.[^.]+$/, '.webp');
+        if (!sanitizedFileName.endsWith('.webp')) {
+            sanitizedFileName = sanitizedFileName.replace(/\.[^.]+$/, '.webp');
         }
 
-        const filePath = path.join(categoryPath, fileName);
+        const filePath = path.join(categoryPath, sanitizedFileName);
+
+        // Security: Verify the final path is within the expected directory
+        const realCategoryPath = fs.realpathSync(categoryPath);
+        const resolvedFilePath = path.resolve(filePath);
+        if (!resolvedFilePath.startsWith(realCategoryPath)) {
+            throw new Error('Invalid file path');
+        }
 
         // Write file (fileData should be base64 or buffer)
         const buffer = Buffer.from(fileData, 'base64');
-        fs.writeFileSync(filePath, buffer);
 
-        return { success: true, path: filePath };
+        // Security: Validate file size (max 500KB for stickers)
+        if (buffer.length > 512000) {
+            throw new Error('Sticker file too large (max 500KB)');
+        }
+
+        fs.writeFileSync(resolvedFilePath, buffer);
+
+        return { success: true, path: resolvedFilePath };
     } catch (error) {
         console.error('Error uploading sticker:', error);
         return { success: false, error: error.message };
@@ -567,11 +670,23 @@ ipcMain.handle('upload-sticker', async (event, { category, fileName, fileData })
 // Delete sticker
 ipcMain.handle('delete-sticker', async (event, { category, fileName }) => {
     try {
-        const stickersDir = path.join(DATA_DIR, 'stickers');
-        const filePath = path.join(stickersDir, category, fileName);
+        // Security: Validate category and fileName
+        const sanitizedCategory = sanitizeCategory(category);
+        const sanitizedFileName = sanitizeFilePath(fileName);
 
-        if (fs.existsSync(filePath)) {
-            fs.unlinkSync(filePath);
+        const stickersDir = path.join(DATA_DIR, 'stickers');
+        const categoryPath = path.join(stickersDir, sanitizedCategory);
+        const filePath = path.join(categoryPath, sanitizedFileName);
+
+        // Security: Verify the final path is within the expected directory
+        const realCategoryPath = fs.realpathSync(categoryPath);
+        const resolvedFilePath = path.resolve(filePath);
+        if (!resolvedFilePath.startsWith(realCategoryPath)) {
+            throw new Error('Invalid file path');
+        }
+
+        if (fs.existsSync(resolvedFilePath)) {
+            fs.unlinkSync(resolvedFilePath);
             return { success: true };
         }
 
@@ -585,11 +700,23 @@ ipcMain.handle('delete-sticker', async (event, { category, fileName }) => {
 // Get sticker file (for preview)
 ipcMain.handle('get-sticker', async (event, { category, fileName }) => {
     try {
-        const stickersDir = path.join(DATA_DIR, 'stickers');
-        const filePath = path.join(stickersDir, category, fileName);
+        // Security: Validate category and fileName
+        const sanitizedCategory = sanitizeCategory(category);
+        const sanitizedFileName = sanitizeFilePath(fileName);
 
-        if (fs.existsSync(filePath)) {
-            const data = fs.readFileSync(filePath);
+        const stickersDir = path.join(DATA_DIR, 'stickers');
+        const categoryPath = path.join(stickersDir, sanitizedCategory);
+        const filePath = path.join(categoryPath, sanitizedFileName);
+
+        // Security: Verify the final path is within the expected directory
+        const realCategoryPath = fs.realpathSync(categoryPath);
+        const resolvedFilePath = path.resolve(filePath);
+        if (!resolvedFilePath.startsWith(realCategoryPath)) {
+            throw new Error('Invalid file path');
+        }
+
+        if (fs.existsSync(resolvedFilePath)) {
+            const data = fs.readFileSync(resolvedFilePath);
             return {
                 success: true,
                 data: data.toString('base64'),
@@ -620,35 +747,53 @@ ipcMain.handle('get-media-items', async () => {
 // Upload media with context
 ipcMain.handle('upload-media', async (event, { fileName, fileData, context, mimeType }) => {
     try {
-        // Validate context is provided
-        if (!context || context.trim().length === 0) {
+        // Security: Validate and sanitize context
+        if (!context || typeof context !== 'string' || context.trim().length === 0) {
             return { success: false, error: 'Context is required' };
         }
 
-        if (context.trim().length < 10) {
-            return { success: false, error: 'Context must be at least 10 characters' };
+        if (context.trim().length < 10 || context.trim().length > 5000) {
+            return { success: false, error: 'Context must be between 10-5000 characters' };
         }
+
+        // Security: Sanitize context to prevent XSS
+        const sanitizedContext = context.trim().replace(/<[^>]*>/g, '');
 
         // Validate file format
         const config = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
-        const allowedFormats = config.mediaSettings?.allowedFormats ||
-                              ['image/jpeg', 'image/png', 'image/jpg'];
+        const allowedFormats = ['image/jpeg', 'image/png', 'image/jpg'];
 
         if (!allowedFormats.includes(mimeType)) {
             return { success: false, error: 'Unsupported file format. Only JPG and PNG are allowed.' };
         }
 
-        // Generate unique filename
+        // Security: Validate fileName
+        const sanitizedFileName = sanitizeFilePath(fileName);
+
+        // Generate unique filename to prevent overwrites
         const timestamp = Date.now();
-        const extension = fileName.split('.').pop();
+        const extension = sanitizedFileName.split('.').pop().toLowerCase();
+
+        // Security: Whitelist allowed extensions
+        if (!['jpg', 'jpeg', 'png'].includes(extension)) {
+            return { success: false, error: 'Invalid file extension' };
+        }
+
         const uniqueFileName = `media_${timestamp}.${extension}`;
         const filePath = path.join(MEDIA_FILES_DIR, uniqueFileName);
+
+        // Security: Verify the final path is within the expected directory
+        const realMediaDir = fs.realpathSync(MEDIA_FILES_DIR);
+        const resolvedFilePath = path.resolve(filePath);
+        if (!resolvedFilePath.startsWith(realMediaDir)) {
+            throw new Error('Invalid file path');
+        }
 
         // Decode and write file
         const buffer = Buffer.from(fileData, 'base64');
 
         // Check file size
-        const maxFileSize = config.mediaSettings?.maxFileSize || 5242880; // 5MB
+        const maxFileSize = 5242880; // 5MB hardcoded for security
         if (buffer.length > maxFileSize) {
             return {
                 success: false,
@@ -656,15 +801,23 @@ ipcMain.handle('upload-media', async (event, { fileName, fileData, context, mime
             };
         }
 
-        fs.writeFileSync(filePath, buffer);
+        // Security: Validate file magic bytes to ensure it's actually an image
+        const isPNG = buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47;
+        const isJPEG = buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF;
+
+        if (!isPNG && !isJPEG) {
+            return { success: false, error: 'File is not a valid image' };
+        }
+
+        fs.writeFileSync(resolvedFilePath, buffer);
 
         // Create media item entry
         const mediaItem = {
             id: `media_${timestamp}`,
             fileName: uniqueFileName,
-            originalName: fileName,
-            filePath: filePath,
-            context: context.trim(),
+            originalName: sanitizedFileName,
+            filePath: resolvedFilePath,
+            context: sanitizedContext,
             mimeType: mimeType,
             fileSize: buffer.length,
             uploadedAt: new Date().toISOString()

@@ -1,4 +1,5 @@
-const { ipcRenderer } = require('electron');
+// Use the secure electronAPI exposed via preload script
+// No direct access to Node.js or Electron APIs in renderer process
 
 // State
 let currentAccountId = null;
@@ -206,7 +207,7 @@ function initializeSettings() {
 }
 
 async function loadConfig() {
-    const config = await ipcRenderer.invoke('get-config');
+    const config = await window.electronAPI.getConfig();
     document.getElementById('api-key-input').value = config.apiKey || '';
     document.getElementById('ai-personality-input').value = config.aiPersonality || '';
     document.getElementById('delay-min-input').value = config.delayMin || 3;
@@ -233,7 +234,7 @@ async function saveApiKey() {
         return;
     }
 
-    const result = await ipcRenderer.invoke('save-config', { apiKey });
+    const result = await window.electronAPI.saveConfig({ apiKey });
 
     if (result.success) {
         showApiStatus('API key saved successfully!', 'success');
@@ -252,21 +253,9 @@ async function testApiKey() {
         return;
     }
 
-    showApiStatus('Testing connection...', 'info');
-
-    try {
-        const { GoogleGenerativeAI } = require('@google/generative-ai');
-        const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
-
-        const result = await model.generateContent('Say "Hello"');
-        const response = await result.response;
-        const text = response.text();
-
-        showApiStatus('✓ Connection successful! AI is working.', 'success');
-    } catch (error) {
-        showApiStatus('✗ Connection failed: ' + error.message, 'error');
-    }
+    // Security: Cannot test API key directly from renderer process
+    // The API key will be validated when you start warming
+    showApiStatus('API key will be validated when warming starts. Save the key to continue.', 'info');
 }
 
 async function saveAIPersonality() {
@@ -277,10 +266,10 @@ async function saveAIPersonality() {
         return;
     }
 
-    const config = await ipcRenderer.invoke('get-config');
+    const config = await window.electronAPI.getConfig();
     config.aiPersonality = aiPersonality;
 
-    const result = await ipcRenderer.invoke('save-config', config);
+    const result = await window.electronAPI.saveConfig(config);
 
     if (result.success) {
         showAIPersonalityStatus('AI personality saved successfully!', 'success');
@@ -330,10 +319,10 @@ Optional:
 
     document.getElementById('ai-personality-input').value = defaultPersonality;
 
-    const config = await ipcRenderer.invoke('get-config');
+    const config = await window.electronAPI.getConfig();
     config.aiPersonality = defaultPersonality;
 
-    const result = await ipcRenderer.invoke('save-config', config);
+    const result = await window.electronAPI.saveConfig(config);
 
     if (result.success) {
         showAIPersonalityStatus('AI personality reset to default', 'success');
@@ -373,11 +362,11 @@ async function saveDelaySettings() {
         return;
     }
 
-    const config = await ipcRenderer.invoke('get-config');
+    const config = await window.electronAPI.getConfig();
     config.delayMin = delayMin;
     config.delayMax = delayMax;
 
-    const result = await ipcRenderer.invoke('save-config', config);
+    const result = await window.electronAPI.saveConfig(config);
 
     if (result.success) {
         showDelayStatus(`Delay settings saved: ${delayMin}s - ${delayMax}s`, 'success');
@@ -396,7 +385,7 @@ function showDelayStatus(message, type) {
 async function saveTypingSettings() {
     const typingMin = parseInt(document.getElementById('typing-min-input').value) || 2;
     const typingMax = parseInt(document.getElementById('typing-max-input').value) || 5;
-    const config = await ipcRenderer.invoke('get-config');
+    const config = await window.electronAPI.getConfig();
     const delayMin = config.delayMin || 3;
     const delayMax = config.delayMax || 8;
 
@@ -420,7 +409,7 @@ async function saveTypingSettings() {
     config.typingMin = typingMin;
     config.typingMax = typingMax;
 
-    const result = await ipcRenderer.invoke('save-config', config);
+    const result = await window.electronAPI.saveConfig(config);
 
     if (result.success) {
         showTypingStatus(`Typing duration saved: ${typingMin}s - ${typingMax}s`, 'success');
@@ -462,7 +451,7 @@ function initializeAccountsTab() {
 
 async function openAddAccountModal() {
     // Check if account already exists
-    const hasAccount = await ipcRenderer.invoke('has-account');
+    const hasAccount = await window.electronAPI.hasAccount();
 
     if (hasAccount) {
         await showAlert('Only one warming account is allowed. Please remove the existing account first.', 'Account Limit');
@@ -517,8 +506,23 @@ function closeAddAccountModal() {
 async function generateQrCode() {
     const accountName = document.getElementById('account-name').value.trim();
 
+    // Security: Validate account name
     if (!accountName) {
         await showAlert('Please enter an account name', 'Validation');
+        document.getElementById('account-name').focus();
+        return;
+    }
+
+    // Security: Validate length
+    if (accountName.length < 3 || accountName.length > 50) {
+        await showAlert('Account name must be between 3-50 characters', 'Validation');
+        document.getElementById('account-name').focus();
+        return;
+    }
+
+    // Security: Only allow alphanumeric, spaces, and basic punctuation
+    if (!/^[a-zA-Z0-9\s\-_.]+$/.test(accountName)) {
+        await showAlert('Account name can only contain letters, numbers, spaces, and basic punctuation', 'Validation');
         document.getElementById('account-name').focus();
         return;
     }
@@ -529,7 +533,7 @@ async function generateQrCode() {
     document.getElementById('qr-code-image').style.display = 'none';
     document.getElementById('qr-status').textContent = 'Initializing...';
 
-    const result = await ipcRenderer.invoke('add-account', accountName);
+    const result = await window.electronAPI.addAccount(accountName);
 
     if (result.success) {
         currentAccountId = result.account.id;
@@ -540,7 +544,7 @@ async function generateQrCode() {
 }
 
 async function loadAccounts() {
-    const accounts = await ipcRenderer.invoke('get-accounts');
+    const accounts = await window.electronAPI.getAccounts();
     const accountsList = document.getElementById('accounts-list');
 
     if (accounts.length === 0) {
@@ -570,17 +574,16 @@ async function loadAccounts() {
                         </svg>
                     </div>
                     <div class="account-profile-info">
-                        <h2>${account.name}</h2>
+                        <h2>${escapeHtml(account.name)}</h2>
                         <p class="account-phone-number">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
                             </svg>
-                            +${account.phoneNumber || 'Connecting...'}
-                        </p>
+                            +${escapeHtml(account.phoneNumber || 'Connecting...')}</p>
                     </div>
                     <div class="account-profile-status">
                         <span class="status-badge status-${account.status === 'ready' ? 'active' : 'inactive'}">
-                            ${statusIcon} ${getStatusText(account.status)}
+                            ${statusIcon} ${escapeHtml(getStatusText(account.status))}
                         </span>
                     </div>
                 </div>
@@ -605,7 +608,7 @@ async function loadAccounts() {
                 </div>
 
                 <div class="account-profile-actions">
-                    <button class="btn btn-danger btn-remove-account" onclick="removeAccount('${account.id}')">
+                    <button class="btn btn-danger btn-remove-account" onclick="removeAccount('${sanitizeAttribute(account.id)}')">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <polyline points="3 6 5 6 21 6"></polyline>
                             <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
@@ -635,7 +638,7 @@ async function removeAccount(accountId) {
         return;
     }
 
-    const result = await ipcRenderer.invoke('remove-account', accountId);
+    const result = await window.electronAPI.removeAccount(accountId);
     if (result.success) {
         loadAccounts();
         loadStats();
@@ -724,18 +727,38 @@ async function savePhoneNumber() {
     const phoneNumber = document.getElementById('phone-number-input').value.trim();
     const name = document.getElementById('phone-name-input').value.trim();
 
+    // Security: Validate phone number
     if (!phoneNumber) {
         await showAlert('Please enter a phone number', 'Validation');
         return;
     }
 
-    // Basic validation
+    // Security: Only allow digits
     if (!/^\d+$/.test(phoneNumber)) {
         await showAlert('Phone number should contain only digits (no + or spaces)', 'Validation');
         return;
     }
 
-    const result = await ipcRenderer.invoke('add-phone-number', phoneNumber, name);
+    // Security: Validate length (between 8-15 digits for international numbers)
+    if (phoneNumber.length < 8 || phoneNumber.length > 15) {
+        await showAlert('Phone number must be between 8-15 digits', 'Validation');
+        return;
+    }
+
+    // Security: Validate name if provided
+    if (name) {
+        if (name.length > 50) {
+            await showAlert('Name must be less than 50 characters', 'Validation');
+            return;
+        }
+        // Only allow alphanumeric, spaces, and basic punctuation
+        if (!/^[a-zA-Z0-9\s\-_.]+$/.test(name)) {
+            await showAlert('Name can only contain letters, numbers, spaces, and basic punctuation', 'Validation');
+            return;
+        }
+    }
+
+    const result = await window.electronAPI.addPhoneNumber(phoneNumber, name);
 
     if (result.success) {
         closeAddPhoneModal();
@@ -749,7 +772,7 @@ async function savePhoneNumber() {
 }
 
 async function loadPhoneNumbers() {
-    const phoneNumbers = await ipcRenderer.invoke('get-phone-numbers');
+    const phoneNumbers = await window.electronAPI.getPhoneNumbers();
     const listEl = document.getElementById('phone-numbers-list');
 
     if (phoneNumbers.length === 0) {
@@ -775,18 +798,18 @@ async function loadPhoneNumbers() {
         return `
             <div class="phone-number-card ${isEnabled ? '' : 'phone-disabled'}">
                 <div class="phone-info">
-                    <h3>${phone.name}</h3>
+                    <h3>${escapeHtml(phone.name)}</h3>
                     <div class="phone-number-row">
-                        <p class="phone-number">+${phone.number}</p>
+                        <p class="phone-number">+${escapeHtml(phone.number)}</p>
                         ${!isEnabled ? '<span class="phone-status-badge">Paused</span>' : ''}
                     </div>
                 </div>
                 <div class="phone-actions">
-                    <label class="toggle-switch" title="${isEnabled ? 'Disable AI responses' : 'Enable AI responses'}">
-                        <input type="checkbox" ${isEnabled ? 'checked' : ''} onchange="togglePhoneNumber('${phone.id}', this.checked)">
+                    <label class="toggle-switch" title="${sanitizeAttribute(isEnabled ? 'Disable AI responses' : 'Enable AI responses')}">
+                        <input type="checkbox" ${isEnabled ? 'checked' : ''} onchange="togglePhoneNumber('${sanitizeAttribute(phone.id)}', this.checked)">
                         <span class="toggle-slider"></span>
                     </label>
-                    <button class="btn btn-small btn-danger" onclick="removePhoneNumber('${phone.id}')">Remove</button>
+                    <button class="btn btn-small btn-danger" onclick="removePhoneNumber('${sanitizeAttribute(phone.id)}')">Remove</button>
                 </div>
             </div>
         `;
@@ -794,7 +817,7 @@ async function loadPhoneNumbers() {
 }
 
 async function togglePhoneNumber(phoneId, enabled) {
-    const result = await ipcRenderer.invoke('toggle-phone-number', phoneId);
+    const result = await window.electronAPI.togglePhoneNumber(phoneId);
     if (result.success) {
         loadPhoneNumbers();
         const status = result.enabled ? 'enabled' : 'paused';
@@ -808,7 +831,7 @@ async function removePhoneNumber(phoneId) {
         return;
     }
 
-    const result = await ipcRenderer.invoke('remove-phone-number', phoneId);
+    const result = await window.electronAPI.removePhoneNumber(phoneId);
     if (result.success) {
         loadPhoneNumbers();
         loadStats();
@@ -827,9 +850,9 @@ function initializeWarmerTab() {
 }
 
 async function checkRequirements() {
-    const accounts = await ipcRenderer.invoke('get-accounts');
-    const phoneNumbers = await ipcRenderer.invoke('get-phone-numbers');
-    const config = await ipcRenderer.invoke('get-config');
+    const accounts = await window.electronAPI.getAccounts();
+    const phoneNumbers = await window.electronAPI.getPhoneNumbers();
+    const config = await window.electronAPI.getConfig();
 
     const hasAccount = accounts.length > 0 && accounts[0].status === 'ready';
     const hasApiKey = config.apiKey && config.apiKey.length > 0;
@@ -846,7 +869,7 @@ async function checkRequirements() {
 }
 
 async function startWarming() {
-    const result = await ipcRenderer.invoke('start-warming', {});
+    const result = await window.electronAPI.startWarming({});
 
     if (result.success) {
         document.getElementById('start-warming-btn').style.display = 'none';
@@ -863,7 +886,7 @@ async function startWarming() {
 }
 
 async function stopWarming() {
-    const result = await ipcRenderer.invoke('stop-warming');
+    const result = await window.electronAPI.stopWarming();
 
     if (result.success) {
         document.getElementById('start-warming-btn').style.display = 'inline-block';
@@ -962,8 +985,8 @@ function clearDemoMessages() {
 }
 
 async function loadMessages() {
-    const messagesByPhone = await ipcRenderer.invoke('get-messages-by-phone');
-    const targetedNumbers = await ipcRenderer.invoke('get-phone-numbers');
+    const messagesByPhone = await window.electronAPI.getMessagesByPhone();
+    const targetedNumbers = await window.electronAPI.getPhoneNumbers();
     displaySegmentedMessages(messagesByPhone, targetedNumbers);
 }
 
@@ -1065,17 +1088,31 @@ function displaySegmentedMessages(messagesByPhone, targetedNumbers = []) {
     }
 }
 
+// Security: Comprehensive HTML escaping to prevent XSS
 function escapeHtml(text) {
+    if (!text) return '';
     const div = document.createElement('div');
-    div.textContent = text;
+    div.textContent = String(text);
     return div.innerHTML;
+}
+
+// Security: Sanitize attributes to prevent XSS in HTML attributes
+function sanitizeAttribute(value) {
+    if (!value) return '';
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#x27;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/\//g, '&#x2F;');
 }
 
 // Dashboard & Stats
 async function loadStats() {
-    const stats = await ipcRenderer.invoke('get-stats');
-    const accounts = await ipcRenderer.invoke('get-accounts');
-    const config = await ipcRenderer.invoke('get-config');
+    const stats = await window.electronAPI.getStats();
+    const accounts = await window.electronAPI.getAccounts();
+    const config = await window.electronAPI.getConfig();
 
     // Header
     const accountStatus = stats.connectedAccounts > 0 ? 'Connected' : 'Not Connected';
@@ -1137,7 +1174,7 @@ function setupIpcListeners() {
     console.log('Setting up IPC listeners...');
 
     // QR Code received
-    ipcRenderer.on('qr-code', (event, data) => {
+    window.electronAPI.onQrCode((data) => {
         console.log('QR Code received in renderer:', data.accountId);
 
         // Get elements
@@ -1166,7 +1203,7 @@ function setupIpcListeners() {
     });
 
     // Account ready
-    ipcRenderer.on('account-ready', async (event, data) => {
+    window.electronAPI.onAccountReady(async (data) => {
         if (data.accountId === currentAccountId) {
             document.getElementById('qr-status').innerHTML = `
                 <div class="success-message">
@@ -1175,7 +1212,7 @@ function setupIpcListeners() {
                 </div>
             `;
 
-            await ipcRenderer.invoke('update-account', data.accountId, {
+            await window.electronAPI.updateAccount(data.accountId, {
                 phoneNumber: data.phoneNumber,
                 status: 'ready'
             });
@@ -1191,19 +1228,19 @@ function setupIpcListeners() {
     });
 
     // Account status changed
-    ipcRenderer.on('account-status-changed', (event, data) => {
+    window.electronAPI.onAccountStatusChanged((data) => {
         loadAccounts();
         loadStats();
         checkRequirements();
     });
 
     // New message
-    ipcRenderer.on('new-message', (event, data) => {
+    window.electronAPI.onNewMessage((data) => {
         loadMessages();
     });
 
     // Warming message sent
-    ipcRenderer.on('warming-message-sent', (event, data) => {
+    window.electronAPI.onWarmingMessageSent((data) => {
         warmingMessageCount++;
         document.getElementById('warming-messages-sent').textContent = warmingMessageCount;
 
@@ -1215,25 +1252,25 @@ function setupIpcListeners() {
     });
 
     // Warming message received
-    ipcRenderer.on('warming-message-received', (event, data) => {
+    window.electronAPI.onWarmingMessageReceived((data) => {
         const time = new Date(data.timestamp).toLocaleTimeString();
         addWarmingLog(`Received from ${data.from}: "${data.message}"`);
     });
 
     // Increment stats
-    ipcRenderer.on('increment-stats', async () => {
-        await ipcRenderer.invoke('increment-message-count');
+    window.electronAPI.onIncrementStats(async () => {
+        await window.electronAPI.incrementMessageCount();
         loadStats();
     });
 
     // Warming error
-    ipcRenderer.on('warming-error', (event, data) => {
+    window.electronAPI.onWarmingError((data) => {
         addWarmingLog(`Error: ${data.error}`);
         addActivityLog(`Error: ${data.error}`);
     });
 
     // Warming stopped (disconnection or other reason)
-    ipcRenderer.on('warming-stopped', (event, data) => {
+    window.electronAPI.onWarmingStopped((data) => {
         document.getElementById('start-warming-btn').style.display = 'inline-block';
         document.getElementById('stop-warming-btn').style.display = 'none';
 
@@ -1243,7 +1280,7 @@ function setupIpcListeners() {
     });
 
     // Blast progress
-    ipcRenderer.on('blast-progress', (event, progress) => {
+    window.electronAPI.onBlastProgress((progress) => {
         const sentCount = document.getElementById('blast-sent-count');
         const progressPercent = document.getElementById('blast-progress');
         const progressBar = document.getElementById('blast-progress-bar');
@@ -1282,7 +1319,7 @@ setInterval(() => {
 }, 5000);
 
 setInterval(async () => {
-    const status = await ipcRenderer.invoke('get-warming-status');
+    const status = await window.electronAPI.getWarmingStatus();
     if (status.activeConversations) {
         document.getElementById('warming-active-chats').textContent = status.activeConversations.length;
     }
@@ -1378,7 +1415,7 @@ async function uploadSticker() {
     reader.onload = async (e) => {
         const base64Data = e.target.result.split(',')[1];
 
-        const result = await ipcRenderer.invoke('upload-sticker', {
+        const result = await window.electronAPI.uploadSticker({
             category: category,
             fileName: file.name,
             fileData: base64Data
@@ -1397,7 +1434,7 @@ async function uploadSticker() {
 }
 
 async function loadStickerCategories() {
-    const categories = await ipcRenderer.invoke('get-sticker-categories');
+    const categories = await window.electronAPI.getStickerCategories();
     const container = document.getElementById('sticker-categories-container');
 
     if (categories.length === 0) {
@@ -1419,9 +1456,9 @@ async function loadStickerCategories() {
             stickersHtml += `
                 <div class="sticker-item">
                     <img src="data:image/webp;base64,${stickerData}"
-                         alt="${sticker}"
+                         alt="${sanitizeAttribute(sticker)}"
                          class="sticker-thumbnail">
-                    <button class="sticker-delete-btn" onclick="deleteSticker('${category.name}', '${sticker}')">×</button>
+                    <button class="sticker-delete-btn" onclick="deleteSticker('${sanitizeAttribute(category.name)}', '${sanitizeAttribute(sticker)}')">×</button>
                 </div>
             `;
         }
@@ -1443,7 +1480,7 @@ async function loadStickerCategories() {
 }
 
 async function getStickerPreview(category, fileName) {
-    const result = await ipcRenderer.invoke('get-sticker', {
+    const result = await window.electronAPI.getSticker({
         category: category,
         fileName: fileName
     });
@@ -1457,7 +1494,7 @@ async function deleteSticker(category, fileName) {
         return;
     }
 
-    const result = await ipcRenderer.invoke('delete-sticker', {
+    const result = await window.electronAPI.deleteSticker({
         category: category,
         fileName: fileName
     });
@@ -1473,7 +1510,7 @@ async function deleteSticker(category, fileName) {
 // Sticker Settings
 
 async function loadStickerSettings() {
-    const config = await ipcRenderer.invoke('get-config');
+    const config = await window.electronAPI.getConfig();
     const settings = config.stickerSettings || {
         enabled: true,
         frequency: 0.12,
@@ -1496,7 +1533,7 @@ async function saveStickerSettings() {
     const frequency = parseInt(document.getElementById('sticker-frequency-input').value) / 100;
     const fallbackToText = document.getElementById('sticker-fallback-toggle').checked;
 
-    const config = await ipcRenderer.invoke('get-config');
+    const config = await window.electronAPI.getConfig();
     config.stickerSettings = {
         enabled: enabled,
         frequency: frequency,
@@ -1504,7 +1541,7 @@ async function saveStickerSettings() {
         categories: ['funny', 'love', 'sad', 'excited', 'thumbs_up', 'thinking', 'wow', 'casual']
     };
 
-    const result = await ipcRenderer.invoke('save-config', config);
+    const result = await window.electronAPI.saveConfig(config);
 
     if (result.success) {
         showStickerStatus('Sticker settings saved successfully!', 'success');
@@ -1648,7 +1685,7 @@ async function uploadMedia() {
     reader.onload = async (e) => {
         const base64Data = e.target.result.split(',')[1];
 
-        const result = await ipcRenderer.invoke('upload-media', {
+        const result = await window.electronAPI.uploadMedia({
             fileName: file.name,
             fileData: base64Data,
             context: context,
@@ -1668,7 +1705,7 @@ async function uploadMedia() {
 }
 
 async function loadMediaItems() {
-    const mediaItems = await ipcRenderer.invoke('get-media-items');
+    const mediaItems = await window.electronAPI.getMediaItems();
     const container = document.getElementById('media-items-container');
 
     if (mediaItems.length === 0) {
@@ -1690,24 +1727,24 @@ async function loadMediaItems() {
 
         html += `
             <div class="media-item-card">
-                <img src="data:${item.mimeType};base64,${previewData}"
-                     alt="${item.context}"
+                <img src="data:${sanitizeAttribute(item.mimeType)};base64,${previewData}"
+                     alt="${sanitizeAttribute(item.context)}"
                      class="media-item-image">
                 <div class="media-item-info">
                     <p class="media-item-context">${escapeHtml(item.context)}</p>
                     <div class="media-item-metadata">
-                        <span>📅 ${uploadDate}</span>
-                        <span>💾 ${fileSize} KB</span>
+                        <span>📅 ${escapeHtml(uploadDate)}</span>
+                        <span>💾 ${escapeHtml(fileSize)} KB</span>
                     </div>
                 </div>
                 <div class="media-item-actions">
-                    <button class="btn-icon btn-edit" onclick="editMediaContext('${item.id}')" title="Edit context">
+                    <button class="btn-icon btn-edit" onclick="editMediaContext('${sanitizeAttribute(item.id)}')" title="Edit context">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
                             <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
                         </svg>
                     </button>
-                    <button class="btn-icon btn-delete" onclick="deleteMedia('${item.id}')" title="Delete">
+                    <button class="btn-icon btn-delete" onclick="deleteMedia('${sanitizeAttribute(item.id)}')" title="Delete">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <polyline points="3 6 5 6 21 6"></polyline>
                             <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
@@ -1722,12 +1759,12 @@ async function loadMediaItems() {
 }
 
 async function getMediaPreview(mediaId) {
-    const result = await ipcRenderer.invoke('get-media-file', { mediaId: mediaId });
+    const result = await window.electronAPI.getMediaFile({ mediaId: mediaId });
     return result.success ? result.data : '';
 }
 
 async function editMediaContext(mediaId) {
-    const mediaItems = await ipcRenderer.invoke('get-media-items');
+    const mediaItems = await window.electronAPI.getMediaItems();
     const item = mediaItems.find(m => m.id === mediaId);
 
     if (!item) {
@@ -1752,7 +1789,7 @@ async function editMediaContext(mediaId) {
         return;
     }
 
-    const result = await ipcRenderer.invoke('update-media-context', {
+    const result = await window.electronAPI.updateMediaContext({
         mediaId: mediaId,
         context: newContext.trim()
     });
@@ -1771,7 +1808,7 @@ async function deleteMedia(mediaId) {
         return;
     }
 
-    const result = await ipcRenderer.invoke('delete-media', { mediaId: mediaId });
+    const result = await window.electronAPI.deleteMedia({ mediaId: mediaId });
 
     if (result.success) {
         loadMediaItems();
@@ -1784,7 +1821,7 @@ async function deleteMedia(mediaId) {
 // Media Settings
 
 async function loadMediaSettings() {
-    const config = await ipcRenderer.invoke('get-config');
+    const config = await window.electronAPI.getConfig();
     const settings = config.mediaSettings || {
         enabled: true,
         frequency: 0.10,
@@ -1806,7 +1843,7 @@ async function saveMediaSettings() {
     const enabled = document.getElementById('media-enabled-toggle').checked;
     const frequency = parseInt(document.getElementById('media-frequency-input').value) / 100;
 
-    const config = await ipcRenderer.invoke('get-config');
+    const config = await window.electronAPI.getConfig();
     config.mediaSettings = {
         enabled: enabled,
         frequency: frequency,
@@ -1815,7 +1852,7 @@ async function saveMediaSettings() {
         requireContext: true
     };
 
-    const result = await ipcRenderer.invoke('save-config', config);
+    const result = await window.electronAPI.saveConfig(config);
 
     if (result.success) {
         showMediaStatus('Media settings saved successfully!', 'success');
@@ -1986,7 +2023,7 @@ async function startBlast() {
     }
 
     // Confirm blast
-    const stats = await ipcRenderer.invoke('get-blast-stats');
+    const stats = await window.electronAPI.getBlastStats();
     if (!stats.success) {
         showBlastStatus('Error: ' + stats.error, 'error');
         return;
@@ -2014,7 +2051,7 @@ async function startBlast() {
     showBlastStatus('Starting blast...', 'info');
 
     try {
-        const result = await ipcRenderer.invoke('start-blast', {
+        const result = await window.electronAPI.startBlast({
             message: message,
             imageData: blastImageData
         });
@@ -2064,7 +2101,7 @@ async function startBlast() {
 
 async function loadBlastStats() {
     try {
-        const stats = await ipcRenderer.invoke('get-blast-stats');
+        const stats = await window.electronAPI.getBlastStats();
         if (stats.success) {
             document.getElementById('blast-total-recipients').textContent = stats.totalRecipients;
             document.getElementById('blast-est-time').textContent = `${Math.ceil(stats.estimatedTime / 60)}m`;
