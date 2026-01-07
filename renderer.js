@@ -1003,102 +1003,129 @@ async function loadMessages() {
 
 // Optimized function to add a single new message without full reload
 function addMessageToChat(messageData) {
-    const phoneNumber = messageData.phoneNumber;
+    try {
+        console.log('Adding message to chat:', messageData); // Debug log
 
-    // Skip if not a targeted number
-    if (!targetedPhoneNumbers.has(phoneNumber)) {
-        return;
-    }
+        const phoneNumber = messageData.phoneNumber;
 
-    // Skip status broadcasts
-    if (phoneNumber.includes('status') || phoneNumber.includes('broadcast')) {
-        return;
-    }
+        // Skip if not a targeted number
+        if (!targetedPhoneNumbers.has(phoneNumber)) {
+            console.log('Skipping - not a targeted number:', phoneNumber);
+            return;
+        }
 
-    // Add to cache
-    if (!cachedMessages[phoneNumber]) {
-        cachedMessages[phoneNumber] = [];
-    }
-    cachedMessages[phoneNumber].push(messageData.message);
+        // Skip status broadcasts
+        if (phoneNumber.includes('status') || phoneNumber.includes('broadcast')) {
+            console.log('Skipping - status/broadcast');
+            return;
+        }
 
-    // Get or create segment
-    let segment = document.getElementById(`chat-segment-${phoneNumber}`);
-    const container = document.getElementById('chat-segments-container');
+        // Normalize message data (handle both isOwn and fromMe properties)
+        const msg = messageData.message;
+        const isOwnMessage = msg.fromMe !== undefined ? msg.fromMe : msg.isOwn;
 
-    // Remove empty state if it exists
-    const emptyState = container.querySelector('.empty-state');
-    if (emptyState) {
-        emptyState.remove();
-    }
+        // Add to cache with normalized property
+        if (!cachedMessages[phoneNumber]) {
+            cachedMessages[phoneNumber] = [];
+        }
 
-    if (!segment) {
-        // Create new segment
-        segment = document.createElement('div');
-        segment.className = 'chat-segment';
-        segment.id = `chat-segment-${phoneNumber}`;
+        // Store with both properties for compatibility
+        const cachedMsg = {
+            ...msg,
+            isOwn: isOwnMessage,
+            fromMe: isOwnMessage
+        };
+        cachedMessages[phoneNumber].push(cachedMsg);
 
-        const header = document.createElement('div');
-        header.className = 'chat-segment-header';
-        header.innerHTML = `
-            <h3>📱 +${escapeHtml(phoneNumber)}</h3>
-            <span class="message-count">1 message</span>
+        // Get or create segment
+        let segment = document.getElementById(`chat-segment-${phoneNumber}`);
+        const container = document.getElementById('chat-segments-container');
+
+        if (!container) {
+            console.error('Chat container not found!');
+            return;
+        }
+
+        // Remove empty state if it exists
+        const emptyState = container.querySelector('.empty-state');
+        if (emptyState) {
+            emptyState.remove();
+        }
+
+        if (!segment) {
+            // Create new segment
+            segment = document.createElement('div');
+            segment.className = 'chat-segment';
+            segment.id = `chat-segment-${phoneNumber}`;
+
+            const header = document.createElement('div');
+            header.className = 'chat-segment-header';
+            header.innerHTML = `
+                <h3>📱 +${escapeHtml(phoneNumber)}</h3>
+                <span class="message-count">1 message</span>
+            `;
+
+            const chatContainer = document.createElement('div');
+            chatContainer.className = 'chat-segment-messages';
+
+            segment.appendChild(header);
+            segment.appendChild(chatContainer);
+            container.appendChild(segment);
+            console.log('Created new chat segment for:', phoneNumber);
+        }
+
+        // Update message count
+        const messageCount = segment.querySelector('.message-count');
+        const count = cachedMessages[phoneNumber].length;
+        messageCount.textContent = `${count} message${count !== 1 ? 's' : ''}`;
+
+        // Get chat container
+        const chatContainer = segment.querySelector('.chat-segment-messages');
+
+        // Create message element
+        const time = new Date(msg.timestamp * 1000).toLocaleTimeString();
+
+        let displayBody = escapeHtml(msg.body || '');
+        let mediaIndicator = '';
+
+        // Add media indicators
+        if (msg.hasMedia && msg.mediaContext) {
+            if (msg.mediaContext.type === 'image') {
+                const desc = msg.mediaContext.description || 'an image';
+                mediaIndicator = `<div class="media-indicator image-indicator">
+                    📷 Image: ${escapeHtml(desc)}
+                </div>`;
+            } else if (msg.mediaContext.type === 'voice') {
+                const trans = msg.mediaContext.transcription || '[voice message]';
+                mediaIndicator = `<div class="media-indicator voice-indicator">
+                    🎤 Voice: "${escapeHtml(trans)}"
+                </div>`;
+                displayBody = ''; // Voice messages don't have separate body
+            }
+        }
+
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `chat-message ${isOwnMessage ? 'message-own' : 'message-received'}`;
+        messageDiv.innerHTML = `
+            ${mediaIndicator}
+            ${displayBody ? `<div class="message-body">${displayBody}</div>` : ''}
+            <div class="message-time">${time}</div>
         `;
 
-        const chatContainer = document.createElement('div');
-        chatContainer.className = 'chat-segment-messages';
+        // Append message
+        chatContainer.appendChild(messageDiv);
+        console.log('Appended message to chat:', isOwnMessage ? 'sent' : 'received');
 
-        segment.appendChild(header);
-        segment.appendChild(chatContainer);
-        container.appendChild(segment);
+        // Auto-scroll to bottom with smooth animation
+        chatContainer.scrollTo({
+            top: chatContainer.scrollHeight,
+            behavior: 'smooth'
+        });
+    } catch (error) {
+        console.error('Error in addMessageToChat:', error);
+        console.error('Message data:', messageData);
+        // Don't throw - just log and continue
     }
-
-    // Update message count
-    const messageCount = segment.querySelector('.message-count');
-    const count = cachedMessages[phoneNumber].length;
-    messageCount.textContent = `${count} message${count !== 1 ? 's' : ''}`;
-
-    // Get chat container
-    const chatContainer = segment.querySelector('.chat-segment-messages');
-
-    // Create message element
-    const msg = messageData.message;
-    const time = new Date(msg.timestamp * 1000).toLocaleTimeString();
-
-    let displayBody = escapeHtml(msg.body || '');
-    let mediaIndicator = '';
-
-    // Add media indicators
-    if (msg.hasMedia && msg.mediaContext) {
-        if (msg.mediaContext.type === 'image') {
-            const desc = msg.mediaContext.description || 'an image';
-            mediaIndicator = `<div class="media-indicator image-indicator">
-                📷 Image: ${escapeHtml(desc)}
-            </div>`;
-        } else if (msg.mediaContext.type === 'voice') {
-            const trans = msg.mediaContext.transcription || '[voice message]';
-            mediaIndicator = `<div class="media-indicator voice-indicator">
-                🎤 Voice: "${escapeHtml(trans)}"
-            </div>`;
-            displayBody = ''; // Voice messages don't have separate body
-        }
-    }
-
-    const messageDiv = document.createElement('div');
-    messageDiv.className = `chat-message ${msg.fromMe ? 'message-own' : 'message-received'}`;
-    messageDiv.innerHTML = `
-        ${mediaIndicator}
-        ${displayBody ? `<div class="message-body">${displayBody}</div>` : ''}
-        <div class="message-time">${time}</div>
-    `;
-
-    // Append message
-    chatContainer.appendChild(messageDiv);
-
-    // Auto-scroll to bottom with smooth animation
-    chatContainer.scrollTo({
-        top: chatContainer.scrollHeight,
-        behavior: 'smooth'
-    });
 }
 
 function displaySegmentedMessages(messagesByPhone, targetedNumbers = []) {
@@ -1357,8 +1384,24 @@ function setupIpcListeners() {
 
     // New message - use incremental update for speed
     window.electronAPI.onNewMessage((data) => {
+        console.log('onNewMessage event:', data);
         // Use fast incremental update instead of full reload
         addMessageToChat(data);
+    });
+
+    // Message received (from restored session) - also use incremental update
+    window.electronAPI.onMessageReceived((data) => {
+        console.log('onMessageReceived event:', data);
+        // Extract phone number and message from different format
+        const phoneNumber = data.message.fromMe
+            ? data.message.to.replace('@c.us', '')
+            : data.message.from.replace('@c.us', '');
+
+        const messageData = {
+            phoneNumber: phoneNumber,
+            message: data.message
+        };
+        addMessageToChat(messageData);
     });
 
     // Warming message sent - use incremental update
