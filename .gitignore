@@ -6,3 +6,7 @@ sessions/
 npm-debug.log*
 .wwebjs_cache/
 *.backup
+
+# Build outputs
+dist/
+.electron-builder-cache/

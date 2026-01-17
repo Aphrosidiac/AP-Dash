@@ -5,14 +5,17 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dev": "electron . --dev"
+    "dev": "electron . --dev",
+    "build": "electron-builder --win",
+    "build:portable": "electron-builder --win portable",
+    "build:all": "electron-builder --win"
   },
   "keywords": [
     "whatsapp",
     "warmer",
     "electron"
   ],
-  "author": "",
+  "author": "AP Devotion",
   "license": "MIT",
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
@@ -21,6 +24,58 @@
     "whatsapp-web.js": "^1.34.2"
   },
   "devDependencies": {
-    "electron": "^39.2.7"
+    "electron": "^39.2.7",
+    "electron-builder": "^26.4.0"
+  },
+  "build": {
+    "appId": "com.apdevotion.whatsapp-warmer",
+    "productName": "AP-Dash",
+    "copyright": "Copyright © 2026 AP Devotion",
+    "directories": {
+      "buildResources": "build",
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer.js",
+      "whatsapp.js",
+      "index.html",
+      "styles.css",
+      "package.json",
+      "!**/*.map",
+      "!node_modules/.cache"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "build/icon.png",
+      "artifactName": "${productName}-Setup-${version}.${ext}",
+      "requestedExecutionLevel": "asInvoker",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "allowElevation": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "AP-Dash",
+      "deleteAppDataOnUninstall": false,
+      "runAfterFinish": true,
+      "menuCategory": true
+    },
+    "portable": {
+      "artifactName": "${productName}-Portable-${version}.${ext}",
+      "requestExecutionLevel": "user"
+    }
   }
 }

@@ -83,8 +83,26 @@ function validateName(name) {
     return trimmed;
 }
 
-const DATA_DIR = path.join(__dirname, 'data');
-const SESSIONS_DIR = path.join(__dirname, 'sessions');
+// Detect portable vs installed mode
+const isPortable = process.env.PORTABLE_EXECUTABLE_DIR !== undefined;
+
+// Determine base path for user data
+const getBasePath = () => {
+  if (isPortable) {
+    // Portable: store data alongside executable
+    return process.env.PORTABLE_EXECUTABLE_DIR || path.dirname(process.execPath);
+  } else if (app.isPackaged) {
+    // Installed: use AppData
+    return app.getPath('userData');
+  } else {
+    // Development: use project directory
+    return __dirname;
+  }
+};
+
+const BASE_DATA_PATH = getBasePath();
+const DATA_DIR = path.join(BASE_DATA_PATH, 'data');
+const SESSIONS_DIR = path.join(BASE_DATA_PATH, 'sessions');
 const ACCOUNTS_FILE = path.join(DATA_DIR, 'accounts.json');
 const STATS_FILE = path.join(DATA_DIR, 'stats.json');
 const PHONE_NUMBERS_FILE = path.join(DATA_DIR, 'phone_numbers.json');
@@ -92,6 +110,9 @@ const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
 const MEDIA_DIR = path.join(DATA_DIR, 'media');
 const MEDIA_FILES_DIR = path.join(MEDIA_DIR, 'files');
 const MEDIA_INDEX_FILE = path.join(MEDIA_DIR, 'media-items.json');
+
+console.log('Running mode:', isPortable ? 'Portable' : (app.isPackaged ? 'Installed' : 'Development'));
+console.log('Data directory:', DATA_DIR);
 
 // Ensure directories exist
 if (!fs.existsSync(DATA_DIR)) {
@@ -188,7 +209,7 @@ function createWindow() {
             contextIsolation: true,
             sandbox: true
         },
-        icon: path.join(__dirname, 'icon.png')
+        icon: path.join(__dirname, 'build', 'icon.png')
     });
 
     mainWindow.loadFile('index.html');
